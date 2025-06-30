@@ -5,6 +5,21 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+try:
+    from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+except ImportError:
+    # Fallback if drf-spectacular is not installed
+    def extend_schema(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    
+    def OpenApiParameter(*args, **kwargs):
+        return None
+    
+    def OpenApiExample(*args, **kwargs):
+        return None
+
 from django_bulk_drf.bulk_processing import (
     bulk_create_task,
     bulk_delete_task,
@@ -27,6 +42,43 @@ class BulkOperationsMixin:
         """
         return self._bulk_get(request)
 
+    @extend_schema(
+        operation_id="bulk_create",
+        summary="Bulk Create Multiple Instances",
+        description="Create multiple instances asynchronously. Supports JSON arrays and CSV file uploads.",
+        request={
+            'application/json': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': {
+                        'id': {'type': 'integer', 'description': 'Instance ID (auto-generated for create)'},
+                        # Additional properties will be dynamically added based on the serializer
+                    },
+                    'additionalProperties': True
+                },
+                'example': [
+                    {"field1": "value1", "field2": "value2"},
+                    {"field1": "value3", "field2": "value4"}
+                ]
+            }
+        },
+        responses={
+            202: {
+                'description': 'Task created successfully',
+                'content': {
+                    'application/json': {
+                        'example': {
+                            'message': 'Bulk create task started for 2 items',
+                            'task_id': 'abc123-def456-ghi789',
+                            'total_items': 2,
+                            'status_url': '/api/bulk-operations/abc123-def456-ghi789/status/'
+                        }
+                    }
+                }
+            }
+        }
+    )
     @action(detail=False, methods=["post"], url_path="bulk")
     def bulk_create(self, request):
         """
@@ -40,6 +92,44 @@ class BulkOperationsMixin:
         """
         return self._handle_bulk_request(request, "create")
 
+    @extend_schema(
+        operation_id="bulk_update",
+        summary="Bulk Update Multiple Instances",
+        description="Update multiple instances asynchronously (partial updates).",
+        request={
+            'application/json': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': {
+                        'id': {'type': 'integer', 'description': 'Instance ID to update', 'required': True},
+                        # Additional properties will be dynamically added based on the serializer
+                    },
+                    'required': ['id'],
+                    'additionalProperties': True
+                },
+                'example': [
+                    {"id": 1, "field1": "updated_value1"},
+                    {"id": 2, "field2": "updated_value2"}
+                ]
+            }
+        },
+        responses={
+            202: {
+                'description': 'Task created successfully',
+                'content': {
+                    'application/json': {
+                        'example': {
+                            'message': 'Bulk update task started for 2 items',
+                            'task_id': 'abc123-def456-ghi789',
+                            'total_items': 2,
+                            'status_url': '/api/bulk-operations/abc123-def456-ghi789/status/'
+                        }
+                    }
+                }
+            }
+        }
+    )
     @action(detail=False, methods=["patch"], url_path="bulk")
     def bulk_update(self, request):
         """
@@ -53,6 +143,44 @@ class BulkOperationsMixin:
         """
         return self._handle_bulk_request(request, "update")
 
+    @extend_schema(
+        operation_id="bulk_replace",
+        summary="Bulk Replace Multiple Instances",
+        description="Replace multiple instances asynchronously (full updates).",
+        request={
+            'application/json': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': {
+                        'id': {'type': 'integer', 'description': 'Instance ID to replace', 'required': True},
+                        # Additional properties will be dynamically added based on the serializer
+                    },
+                    'required': ['id'],
+                    'additionalProperties': True
+                },
+                'example': [
+                    {"id": 1, "field1": "new_value1", "field2": "new_value2"},
+                    {"id": 2, "field1": "new_value3", "field2": "new_value4"}
+                ]
+            }
+        },
+        responses={
+            202: {
+                'description': 'Task created successfully',
+                'content': {
+                    'application/json': {
+                        'example': {
+                            'message': 'Bulk replace task started for 2 items',
+                            'task_id': 'abc123-def456-ghi789',
+                            'total_items': 2,
+                            'status_url': '/api/bulk-operations/abc123-def456-ghi789/status/'
+                        }
+                    }
+                }
+            }
+        }
+    )
     @action(detail=False, methods=["put"], url_path="bulk")
     def bulk_replace(self, request):
         """
@@ -66,6 +194,33 @@ class BulkOperationsMixin:
         """
         return self._handle_bulk_request(request, "replace")
 
+    @extend_schema(
+        operation_id="bulk_delete",
+        summary="Bulk Delete Multiple Instances",
+        description="Delete multiple instances asynchronously.",
+        request={
+            'application/json': {
+                'type': 'array',
+                'items': {'type': 'integer'},
+                'example': [1, 2, 3, 4, 5]
+            }
+        },
+        responses={
+            202: {
+                'description': 'Task created successfully',
+                'content': {
+                    'application/json': {
+                        'example': {
+                            'message': 'Bulk delete task started for 5 items',
+                            'task_id': 'abc123-def456-ghi789',
+                            'total_items': 5,
+                            'status_url': '/api/bulk-operations/abc123-def456-ghi789/status/'
+                        }
+                    }
+                }
+            }
+        }
+    )
     @action(detail=False, methods=["delete"], url_path="bulk")
     def bulk_delete(self, request):
         """
@@ -205,7 +360,7 @@ class BulkOperationsMixin:
 
     def _bulk_replace(self, request):
         """
-        Replace multiple instances asynchronously (full updates).
+        Replace multiple instances asynchronously.
 
         Expects a JSON array of complete objects with 'id' and all required fields.
         Returns a task ID for tracking the bulk operation.
@@ -269,21 +424,21 @@ class BulkOperationsMixin:
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Validate that all items are integers (IDs)
+        # Validate that all items are integers
         for i, item_id in enumerate(ids_list):
             if not isinstance(item_id, int):
                 return Response(
-                    {"error": f"Item at index {i} is not a valid ID"},
+                    {"error": f"Item at index {i} is not a valid integer ID"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        # Get the model class path
-        model_class = self.get_queryset().model
-        model_class_path = f"{model_class.__module__}.{model_class.__name__}"
+        # Get the serializer class path
+        serializer_class = self.get_serializer_class()
+        serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
 
         # Start the bulk delete task
         user_id = request.user.id if request.user.is_authenticated else None
-        task = bulk_delete_task.delay(model_class_path, ids_list, user_id)
+        task = bulk_delete_task.delay(serializer_class_path, ids_list, user_id)
 
         return Response(
             {
@@ -297,200 +452,220 @@ class BulkOperationsMixin:
 
     def _bulk_get(self, request):
         """
-        Retrieve multiple instances using bulk query.
+        Retrieve multiple instances by IDs or query parameters.
 
-        Supports two modes:
-        1. Query parameters: ?ids=1,2,3,4,5 for simple ID-based retrieval
-        2. POST body with complex filters for advanced queries
-        
+        Supports:
+        - Query params: ?ids=1,2,3 for simple ID-based retrieval
+        - Request body: Complex filters for advanced queries
+
         Returns serialized data directly for small results, or task ID for large results.
         """
-        # Mode 1: Simple ID-based retrieval via query params
-        ids_param = request.query_params.get('ids')
+        # Check for simple ID-based retrieval via query params
+        ids_param = request.query_params.get("ids")
         if ids_param:
             try:
-                ids_list = [int(id_str.strip()) for id_str in ids_param.split(',')]
+                ids_list = [int(id_str.strip()) for id_str in ids_param.split(",") if id_str.strip()]
+                if not ids_list:
+                    return Response(
+                        {"error": "No valid IDs provided"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 
-                # For small ID lists, return directly
+                # For small result sets, return directly
                 if len(ids_list) <= 100:  # Configurable threshold
-                    queryset = self.get_queryset().filter(id__in=ids_list)
-                    serializer = self.get_serializer(queryset, many=True)
-                    
-                    return Response({
-                        "count": len(serializer.data),
-                        "results": serializer.data,
-                        "is_async": False
-                    }, status=status.HTTP_200_OK)
-                
-                # For large ID lists, process asynchronously
+                    return self._get_direct_results(ids_list)
                 else:
-                    model_class = self.get_queryset().model
-                    model_class_path = f"{model_class.__module__}.{model_class.__name__}"
-                    serializer_class = self.get_serializer_class()
-                    serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
-                    
-                    user_id = request.user.id if request.user.is_authenticated else None
-                    task = bulk_get_task.delay(model_class_path, serializer_class_path, {"ids": ids_list}, user_id)
-                    
-                    return Response({
-                        "message": f"Bulk get task started for {len(ids_list)} IDs",
-                        "task_id": task.id,
-                        "total_items": len(ids_list),
-                        "status_url": f"/api/bulk-operations/{task.id}/status/",
-                        "is_async": True
-                    }, status=status.HTTP_202_ACCEPTED)
+                    # For large result sets, use async task
+                    return self._get_async_results(ids_list)
                     
             except ValueError:
                 return Response(
-                    {"error": "Invalid ID format. Use comma-separated integers."},
+                    {"error": "Invalid ID format in query parameter"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         
-        # Mode 2: Complex query via request body (treated as POST-style query)
+        # Check for complex query in request body
         elif request.data:
-            query_data = request.data
-            
-            # Validate query structure
-            if not isinstance(query_data, dict):
+            query_filters = request.data
+            if not isinstance(query_filters, dict):
                 return Response(
-                    {"error": "Query data must be an object with filter parameters"},
+                    {"error": "Expected a dictionary of filters"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             
-            # Start async task for complex queries
-            model_class = self.get_queryset().model
-            model_class_path = f"{model_class.__module__}.{model_class.__name__}"
-            serializer_class = self.get_serializer_class()
-            serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
-            
-            user_id = request.user.id if request.user.is_authenticated else None
-            task = bulk_get_task.delay(model_class_path, serializer_class_path, query_data, user_id)
-            
-            return Response({
-                "message": "Bulk query task started",
-                "task_id": task.id,
-                "status_url": f"/api/bulk-operations/{task.id}/status/",
-                "is_async": True
-            }, status=status.HTTP_202_ACCEPTED)
+            # For complex queries, always use async task
+            return self._get_async_results_with_filters(query_filters)
         
         else:
             return Response(
-                {"error": "Provide either 'ids' query parameter or query filters in request body"},
+                {
+                    "error": "Must provide either 'ids' query parameter or request body with filters",
+                    "examples": {
+                        "simple": "GET /api/endpoint/bulk/?ids=1,2,3",
+                        "complex": "GET /api/endpoint/bulk/ with JSON body containing filters"
+                    }
+                },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    def _get_direct_results(self, ids_list):
+        """Get results directly for small result sets."""
+        try:
+            # Get the model class from the viewset
+            model_class = self.get_queryset().model
+            instances = model_class.objects.filter(id__in=ids_list)
+            
+            # Serialize the results
+            serializer_class = self.get_serializer_class()
+            serializer = serializer_class(instances, many=True)
+            
+            return Response({
+                "count": len(serializer.data),
+                "results": serializer.data,
+                "is_async": False
+            })
+            
+        except Exception as e:
+            return Response(
+                {"error": f"Error retrieving results: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def _get_async_results(self, ids_list):
+        """Get results asynchronously for large result sets."""
+        try:
+            # Get the serializer class path
+            serializer_class = self.get_serializer_class()
+            serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
+            
+            # Start the bulk get task
+            user_id = self.request.user.id if self.request.user.is_authenticated else None
+            task = bulk_get_task.delay(serializer_class_path, ids_list, user_id)
+            
+            return Response({
+                "message": f"Bulk get task started for {len(ids_list)} items",
+                "task_id": task.id,
+                "total_items": len(ids_list),
+                "status_url": f"/api/bulk-operations/{task.id}/status/",
+                "is_async": True
+            }, status=status.HTTP_202_ACCEPTED)
+            
+        except Exception as e:
+            return Response(
+                {"error": f"Error starting bulk get task: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def _get_async_results_with_filters(self, query_filters):
+        """Get results asynchronously using complex filters."""
+        try:
+            # Get the serializer class path
+            serializer_class = self.get_serializer_class()
+            serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
+            
+            # Start the bulk get task with filters
+            user_id = self.request.user.id if self.request.user.is_authenticated else None
+            task = bulk_get_task.delay(serializer_class_path, query_filters, user_id, use_filters=True)
+            
+            return Response({
+                "message": "Bulk get task started with complex filters",
+                "task_id": task.id,
+                "filters": query_filters,
+                "status_url": f"/api/bulk-operations/{task.id}/status/",
+                "is_async": True
+            }, status=status.HTTP_202_ACCEPTED)
+            
+        except Exception as e:
+            return Response(
+                {"error": f"Error starting bulk get task: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     def _bulk_csv(self, request, operation: str):
         """
-        Handle CSV file upload for bulk operations.
-        
+        Handle CSV file uploads for bulk operations.
+
         Args:
-            request: The HTTP request containing the CSV file
-            operation: The type of operation (create, update, replace, delete)
-        
+            request: The HTTP request
+            operation: The operation type (create, update, replace, delete)
+
         Returns:
-            Response with task ID for tracking the bulk operation
+            Response with task ID for tracking
         """
-        import csv
-        import io
-        
-        # Check if file was uploaded
-        if 'file' not in request.FILES:
+        if "file" not in request.FILES:
             return Response(
-                {"error": "No CSV file provided. Upload a file with key 'file'"},
+                {
+                    "error": "No file provided",
+                    "supported_formats": ["CSV files with headers"]
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        
-        csv_file = request.FILES['file']
-        
+
+        csv_file = request.FILES["file"]
+        filename = csv_file.name
+
         # Validate file type
-        if not csv_file.name.lower().endswith('.csv'):
+        if not filename.lower().endswith(".csv"):
             return Response(
-                {"error": "File must be a CSV file with .csv extension"},
+                {"error": "File must be a CSV file"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        
-        # Validate file size (configurable limit - default 10MB)
-        max_size = getattr(self, 'csv_max_file_size', 10 * 1024 * 1024)  # 10MB
-        if csv_file.size > max_size:
-            return Response(
-                {"error": f"File too large. Maximum size is {max_size // (1024*1024)}MB"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        
+
         try:
-            # Read and parse CSV
-            csv_content = csv_file.read().decode('utf-8-sig')  # Handle BOM
-            csv_reader = csv.DictReader(io.StringIO(csv_content))
-            
-            # Convert CSV rows to list of dictionaries
-            data_list = []
-            for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 (header is row 1)
-                # Remove empty values and strip whitespace
-                cleaned_row = {k.strip(): v.strip() if v else None for k, v in row.items() if k.strip()}
-                
-                # Skip completely empty rows
-                if not any(cleaned_row.values()):
-                    continue
-                    
-                # Validate required fields based on operation
-                if operation in ['update', 'replace', 'delete'] and not cleaned_row.get('id'):
-                    return Response(
-                        {"error": f"Row {row_num}: 'id' field is required for {operation} operations"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                
-                data_list.append(cleaned_row)
-            
+            # Read and parse CSV file
+            import csv
+            import io
+
+            # Decode the file content
+            content = csv_file.read().decode("utf-8")
+            csv_reader = csv.DictReader(io.StringIO(content))
+            data_list = list(csv_reader)
+
             if not data_list:
                 return Response(
-                    {"error": "CSV file is empty or contains no valid data rows"},
+                    {"error": "CSV file is empty or has no data rows"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            
-            # Route to appropriate operation
+
+            # Process based on operation type
             if operation == "create":
-                return self._process_csv_create(request, data_list, csv_file.name)
+                return self._process_csv_create(request, data_list, filename)
             elif operation == "update":
-                return self._process_csv_update(request, data_list, csv_file.name)
+                return self._process_csv_update(request, data_list, filename)
             elif operation == "replace":
-                return self._process_csv_replace(request, data_list, csv_file.name)
+                return self._process_csv_replace(request, data_list, filename)
             elif operation == "delete":
-                return self._process_csv_delete(request, data_list, csv_file.name)
-            else:
-                return Response(
-                    {"error": f"Unsupported operation: {operation}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-                
+                return self._process_csv_delete(request, data_list, filename)
+
         except UnicodeDecodeError:
             return Response(
-                {"error": "Invalid file encoding. Please save CSV as UTF-8"},
+                {"error": "CSV file must be UTF-8 encoded"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except csv.Error as e:
             return Response(
-                {"error": f"CSV parsing error: {str(e)}"},
+                {"error": f"Invalid CSV format: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
             return Response(
-                {"error": f"File processing error: {str(e)}"},
+                {"error": f"Error processing CSV file: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     def _process_csv_create(self, request, data_list, filename):
-        """Process CSV data for create operations."""
+        """Process CSV data for bulk create operation."""
         # Get the serializer class path
         serializer_class = self.get_serializer_class()
         serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
 
         # Start the bulk create task
         user_id = request.user.id if request.user.is_authenticated else None
-        task = bulk_create_task.delay(serializer_class_path, data_list, user_id)
+        task = bulk_create_task.delay(serializer_class_path, data_list, user_id, source_file=filename)
 
         return Response(
             {
-                "message": f"Bulk create task started from CSV '{filename}' with {len(data_list)} rows",
+                "message": f"Bulk create task started from CSV file '{filename}' for {len(data_list)} items",
                 "task_id": task.id,
                 "total_items": len(data_list),
                 "source_file": filename,
@@ -500,18 +675,26 @@ class BulkOperationsMixin:
         )
 
     def _process_csv_update(self, request, data_list, filename):
-        """Process CSV data for update operations."""
+        """Process CSV data for bulk update operation."""
+        # Validate that all items have an 'id' column
+        for i, item in enumerate(data_list):
+            if "id" not in item:
+                return Response(
+                    {"error": f"Row {i+1} is missing 'id' column"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         # Get the serializer class path
         serializer_class = self.get_serializer_class()
         serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
 
         # Start the bulk update task
         user_id = request.user.id if request.user.is_authenticated else None
-        task = bulk_update_task.delay(serializer_class_path, data_list, user_id)
+        task = bulk_update_task.delay(serializer_class_path, data_list, user_id, source_file=filename)
 
         return Response(
             {
-                "message": f"Bulk update task started from CSV '{filename}' with {len(data_list)} rows",
+                "message": f"Bulk update task started from CSV file '{filename}' for {len(data_list)} items",
                 "task_id": task.id,
                 "total_items": len(data_list),
                 "source_file": filename,
@@ -521,18 +704,26 @@ class BulkOperationsMixin:
         )
 
     def _process_csv_replace(self, request, data_list, filename):
-        """Process CSV data for replace operations."""
+        """Process CSV data for bulk replace operation."""
+        # Validate that all items have an 'id' column
+        for i, item in enumerate(data_list):
+            if "id" not in item:
+                return Response(
+                    {"error": f"Row {i+1} is missing 'id' column"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         # Get the serializer class path
         serializer_class = self.get_serializer_class()
         serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
 
         # Start the bulk replace task
         user_id = request.user.id if request.user.is_authenticated else None
-        task = bulk_replace_task.delay(serializer_class_path, data_list, user_id)
+        task = bulk_replace_task.delay(serializer_class_path, data_list, user_id, source_file=filename)
 
         return Response(
             {
-                "message": f"Bulk replace task started from CSV '{filename}' with {len(data_list)} rows",
+                "message": f"Bulk replace task started from CSV file '{filename}' for {len(data_list)} items",
                 "task_id": task.id,
                 "total_items": len(data_list),
                 "source_file": filename,
@@ -542,30 +733,34 @@ class BulkOperationsMixin:
         )
 
     def _process_csv_delete(self, request, data_list, filename):
-        """Process CSV data for delete operations."""
-        # Extract IDs from CSV data
+        """Process CSV data for bulk delete operation."""
+        # Extract IDs from the CSV data
         ids_list = []
-        for row in data_list:
-            try:
-                id_value = int(row['id'])
-                ids_list.append(id_value)
-            except (ValueError, KeyError):
+        for i, item in enumerate(data_list):
+            if "id" not in item:
                 return Response(
-                    {"error": f"Invalid or missing 'id' value in CSV: {row}"},
+                    {"error": f"Row {i+1} is missing 'id' column"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                ids_list.append(int(item["id"]))
+            except (ValueError, TypeError):
+                return Response(
+                    {"error": f"Row {i+1} has invalid ID format"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        # Get the model class path
-        model_class = self.get_queryset().model
-        model_class_path = f"{model_class.__module__}.{model_class.__name__}"
+        # Get the serializer class path
+        serializer_class = self.get_serializer_class()
+        serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
 
         # Start the bulk delete task
         user_id = request.user.id if request.user.is_authenticated else None
-        task = bulk_delete_task.delay(model_class_path, ids_list, user_id)
+        task = bulk_delete_task.delay(serializer_class_path, ids_list, user_id, source_file=filename)
 
         return Response(
             {
-                "message": f"Bulk delete task started from CSV '{filename}' with {len(ids_list)} IDs",
+                "message": f"Bulk delete task started from CSV file '{filename}' for {len(ids_list)} items",
                 "task_id": task.id,
                 "total_items": len(ids_list),
                 "source_file": filename,
@@ -574,72 +769,67 @@ class BulkOperationsMixin:
             status=status.HTTP_202_ACCEPTED,
         )
 
-# Keep individual mixins for backward compatibility
+
 class BulkCreateMixin:
-    """Mixin to add bulk create functionality to ViewSets."""
+    """Mixin providing bulk create operations through a dedicated endpoint."""
 
     @action(detail=False, methods=["post"], url_path="bulk-create")
     def bulk_create_action(self, request):
         """
-        Create multiple instances asynchronously.
-
-        Expects a JSON array of objects to create.
-        Returns a task ID for tracking the bulk operation.
+        Create multiple instances asynchronously through a dedicated endpoint.
+        
+        This is an alternative to the main bulk endpoint for create operations.
         """
-        return BulkOperationsMixin._bulk_create(self, request)
+        return self._bulk_create(request)
 
 
 class BulkUpdateMixin:
-    """Mixin to add bulk update functionality to ViewSets."""
+    """Mixin providing bulk update operations through a dedicated endpoint."""
 
     @action(detail=False, methods=["patch"], url_path="bulk-update")
     def bulk_update_action(self, request):
         """
-        Update multiple instances asynchronously.
-
-        Expects a JSON array of objects with 'id' and update data.
-        Returns a task ID for tracking the bulk operation.
+        Update multiple instances asynchronously through a dedicated endpoint.
+        
+        This is an alternative to the main bulk endpoint for update operations.
         """
-        return BulkOperationsMixin._bulk_update(self, request)
+        return self._bulk_update(request)
 
 
 class BulkDeleteMixin:
-    """Mixin to add bulk delete functionality to ViewSets."""
+    """Mixin providing bulk delete operations through a dedicated endpoint."""
 
     @action(detail=False, methods=["delete"], url_path="bulk-delete")
     def bulk_delete_action(self, request):
         """
-        Delete multiple instances asynchronously.
-
-        Expects a JSON array of IDs to delete.
-        Returns a task ID for tracking the bulk operation.
+        Delete multiple instances asynchronously through a dedicated endpoint.
+        
+        This is an alternative to the main bulk endpoint for delete operations.
         """
-        return BulkOperationsMixin._bulk_delete(self, request)
+        return self._bulk_delete(request)
 
 
 class BulkReplaceMixin:
-    """Mixin to add bulk replace functionality to ViewSets."""
+    """Mixin providing bulk replace operations through a dedicated endpoint."""
 
     @action(detail=False, methods=["put"], url_path="bulk-replace")
     def bulk_replace_action(self, request):
         """
-        Replace multiple instances asynchronously (full updates).
-
-        Expects a JSON array of complete objects with 'id' and all required fields.
-        Returns a task ID for tracking the bulk operation.
+        Replace multiple instances asynchronously through a dedicated endpoint.
+        
+        This is an alternative to the main bulk endpoint for replace operations.
         """
-        return BulkOperationsMixin._bulk_replace(self, request)
+        return self._bulk_replace(request)
 
 
 class BulkGetMixin:
-    """Mixin to add bulk get functionality to ViewSets."""
+    """Mixin providing bulk get operations through a dedicated endpoint."""
 
     @action(detail=False, methods=["get"], url_path="bulk-get")
     def bulk_get_action(self, request):
         """
-        Retrieve multiple instances using bulk query.
-
-        Supports ID-based retrieval via query params or complex filters via request body.
-        Returns serialized data or task ID for tracking the bulk operation.
+        Retrieve multiple instances through a dedicated endpoint.
+        
+        This is an alternative to the main bulk endpoint for get operations.
         """
-        return BulkOperationsMixin._bulk_get(self, request)
+        return self._bulk_get(request) 

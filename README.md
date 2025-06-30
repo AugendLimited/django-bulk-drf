@@ -169,6 +169,55 @@ class FinancialTransactionViewSet(BulkOperationsMixin, viewsets.ModelViewSet):
     serializer_class = FinancialTransactionSerializer
 ```
 
+### OpenAPI/Swagger Documentation
+
+The bulk operations include proper OpenAPI schema definitions for Swagger documentation. To enable this:
+
+1. **Install drf-spectacular** (optional dependency):
+```bash
+pip install drf-spectacular
+```
+
+2. **Add to INSTALLED_APPS**:
+```python
+INSTALLED_APPS = [
+    # ... your other apps
+    'drf_spectacular',
+]
+```
+
+3. **Configure DRF settings**:
+```python
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Your API',
+    'DESCRIPTION': 'Your API description',
+    'VERSION': '1.0.0',
+}
+```
+
+4. **Add URL patterns**:
+```python
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+
+urlpatterns = [
+    # ... your other URLs
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+]
+```
+
+The bulk endpoints will now show proper OpenAPI documentation with:
+- ✅ **Array payloads** correctly specified for all bulk operations
+- ✅ **Request/response examples** for each operation type
+- ✅ **Proper schema references** for your model fields
+- ✅ **CSV upload support** documented for file operations
+
+**Note**: If `drf-spectacular` is not installed, the mixins will work normally but without enhanced OpenAPI documentation.
+
 ### Example API Calls
 
 #### Bulk Retrieve (Simple ID-based)
