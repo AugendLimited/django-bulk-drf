@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "django-bulk-drf"
-version = "0.1.5"
+version = "0.1.6"
 description = "Django REST Framework mixins for asynchronous bulk operations with Celery and Redis"
 authors = ["Konrad Beck <konrad.beck@merchantcapital.co.za>"]
 readme = "README.md"
@@ -45,7 +45,6 @@ requests = "^2.31.0"  # For examples and testing
 # Optional dependencies for enhanced functionality
 django-extensions = "^3.2.0"  # For management commands
 flower = "^2.0.0"  # For Celery monitoring
-drf-spectacular = "^0.27.0"  # For OpenAPI/Swagger documentation
 
 [build-system]
 requires = ["poetry-core"]
