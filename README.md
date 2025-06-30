@@ -76,21 +76,34 @@ The bulk operations system consists of:
 - **Input**: Array of objects to create
 - **Output**: Task ID and status URL
 
-### 2. Bulk Update
+### 2. Bulk Update (Partial)
 - **Endpoint**: `PATCH /api/{model}/bulk/`
 - **Method**: PATCH
-- **Input**: Array of objects with `id` and update data
+- **Input**: Array of objects with `id` and partial update data
 - **Output**: Task ID and status URL
 
-### 3. Bulk Delete
+### 3. Bulk Replace (Full Update)
+- **Endpoint**: `PUT /api/{model}/bulk/`
+- **Method**: PUT
+- **Input**: Array of complete objects with `id` and all required fields
+- **Output**: Task ID and status URL
+
+### 4. Bulk Delete
 - **Endpoint**: `DELETE /api/{model}/bulk/`
 - **Method**: DELETE
 - **Input**: Array of IDs to delete
 - **Output**: Task ID and status URL
 
-### 4. Status Tracking
+### 5. Status Tracking
 - **Endpoint**: `GET /api/bulk-operations/{task_id}/status/`
 - **Output**: Task status, progress, and results
+
+## HTTP Method Differences
+
+- **POST**: Creates new records (all fields required based on your model)
+- **PATCH**: Partial updates - only include fields you want to change (requires `id`)
+- **PUT**: Full replacement - all required fields must be provided (requires `id`) 
+- **DELETE**: Removes records (provide array of IDs)
 
 ## Usage
 
@@ -138,7 +151,7 @@ curl -X POST http://localhost:8000/api/financial-transactions/bulk/ \\
 }
 ```
 
-#### Bulk Update
+#### Bulk Update (Partial)
 ```bash
 curl -X PATCH http://localhost:8000/api/financial-transactions/bulk/ \\
   -H "Content-Type: application/json" \\
@@ -151,6 +164,30 @@ curl -X PATCH http://localhost:8000/api/financial-transactions/bulk/ \\
     {
       "id": 2,
       "description": "Updated transaction 2"
+    }
+  ]'
+```
+
+#### Bulk Replace (Full Update)
+```bash
+curl -X PUT http://localhost:8000/api/financial-transactions/bulk/ \\
+  -H "Content-Type: application/json" \\
+  -d '[
+    {
+      "id": 1,
+      "amount": "200.00",
+      "description": "Completely replaced transaction 1",
+      "datetime": "2025-01-01T15:00:00Z",
+      "financial_account": 1,
+      "classification_status": 2
+    },
+    {
+      "id": 2,
+      "amount": "75.50",
+      "description": "Completely replaced transaction 2",
+      "datetime": "2025-01-01T16:00:00Z",
+      "financial_account": 1,
+      "classification_status": 1
     }
   ]'
 ```

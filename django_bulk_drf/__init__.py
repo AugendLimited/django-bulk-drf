@@ -14,6 +14,7 @@ from .bulk_mixins import (
     BulkCreateMixin,
     BulkDeleteMixin, 
     BulkOperationsMixin,
+    BulkReplaceMixin,
     BulkUpdateMixin,
 )
 from .bulk_views import BulkOperationStatusView
@@ -21,7 +22,8 @@ from .bulk_views import BulkOperationStatusView
 __all__ = [
     "BulkCreateMixin",
     "BulkDeleteMixin",
-    "BulkOperationsMixin", 
+    "BulkOperationsMixin",
+    "BulkReplaceMixin", 
     "BulkUpdateMixin",
     "BulkOperationStatusView",
 ]

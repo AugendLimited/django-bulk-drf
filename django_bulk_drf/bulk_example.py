@@ -68,6 +68,28 @@ class BulkOperationsExample:
             print(f"❌ Error: {response.status_code} - {response.text}")
             return ""
 
+    def bulk_replace_financial_transactions(self, replacements_data: list[dict]) -> str:
+        """
+        Replace multiple financial transactions using bulk endpoint with PUT method.
+
+        Args:
+            replacements_data: List of complete replacement data dictionaries (must include 'id')
+
+        Returns:
+            Task ID for tracking the operation
+        """
+        url = f"{self.base_url}/financial-transactions/bulk/"
+        response = self.session.put(url, json=replacements_data)
+        
+        if response.status_code == 202:
+            result = response.json()
+            print(f"✅ Bulk replace started: {result['message']}")
+            print(f"📋 Task ID: {result['task_id']}")
+            return result["task_id"]
+        else:
+            print(f"❌ Error: {response.status_code} - {response.text}")
+            return ""
+
     def bulk_delete_financial_transactions(self, ids_list: list[int]) -> str:
         """
         Delete multiple financial transactions using bulk endpoint with DELETE method.

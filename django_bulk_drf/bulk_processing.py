@@ -255,3 +255,96 @@ def bulk_delete_task(self, model_class_path: str, ids_list: list[int], user_id: 
         BulkOperationCache.set_task_result(task_id, result.to_dict())
 
     return result.to_dict()
+
+
+@shared_task(bind=True)
+def bulk_replace_task(self, serializer_class_path: str, replacements_list: list[dict], user_id: int | None = None):
+    """
+    Celery task for bulk replacement (full update) of model instances.
+
+    Args:
+        serializer_class_path: Full path to the serializer class
+        replacements_list: List of dictionaries containing complete data for each instance (must include 'id')
+        user_id: Optional user ID for audit purposes
+    """
+    task_id = self.request.id
+    result = BulkOperationResult(task_id, len(replacements_list), "bulk_replace")
+
+    # Initialize progress tracking in Redis
+    BulkOperationCache.set_task_progress(task_id, 0, len(replacements_list), "Starting bulk replace...")
+
+    try:
+        serializer_class = import_string(serializer_class_path)
+        
+        # Get the model class from the serializer
+        model_class = serializer_class.Meta.model
+        
+        # Validate all items first
+        BulkOperationCache.set_task_progress(task_id, 0, len(replacements_list), "Validating data...")
+        
+        valid_replacements = []
+        for index, item_data in enumerate(replacements_list):
+            try:
+                # Extract ID for the instance to replace
+                instance_id = item_data.get("id")
+                if not instance_id:
+                    result.add_error(index, "Missing 'id' field for replacement", item_data)
+                    continue
+                
+                # Get the existing instance
+                try:
+                    instance = model_class.objects.get(id=instance_id)
+                except model_class.DoesNotExist:
+                    result.add_error(index, f"Instance with id {instance_id} not found", item_data)
+                    continue
+                
+                # Validate the complete replacement data
+                serializer = serializer_class(instance, data=item_data)
+                if serializer.is_valid():
+                    valid_replacements.append((index, instance, serializer.validated_data, instance_id))
+                else:
+                    result.add_error(index, str(serializer.errors), item_data)
+                    
+            except (ValidationError, ValueError) as e:
+                result.add_error(index, str(e), item_data)
+            
+            # Update progress every 10 items or at the end
+            if (index + 1) % 10 == 0 or index == len(replacements_list) - 1:
+                BulkOperationCache.set_task_progress(
+                    task_id, index + 1, len(replacements_list), f"Validated {index + 1}/{len(replacements_list)} items",
+                )
+
+        # Perform the bulk replacement in the database
+        if valid_replacements:
+            BulkOperationCache.set_task_progress(
+                task_id, len(replacements_list), len(replacements_list), "Replacing instances in database..."
+            )
+            
+            with transaction.atomic():
+                for index, instance, validated_data, instance_id in valid_replacements:
+                    try:
+                        # Update all fields with validated data
+                        for field, value in validated_data.items():
+                            setattr(instance, field, value)
+                        instance.save()
+                        result.add_success(instance_id, "updated")
+                        
+                    except Exception as e:
+                        result.add_error(index, f"Database error: {e!s}", validated_data)
+
+        # Store final result in cache
+        BulkOperationCache.set_task_result(task_id, result.to_dict())
+
+        logger.info(
+            "Bulk replace task %s completed: %s replaced, %s errors",
+            task_id,
+            result.success_count,
+            result.error_count,
+        )
+
+    except (ImportError, AttributeError) as e:
+        logger.exception("Bulk replace task %s failed", task_id)
+        result.add_error(0, f"Task failed: {e!s}")
+        BulkOperationCache.set_task_result(task_id, result.to_dict())
+
+    return result.to_dict()

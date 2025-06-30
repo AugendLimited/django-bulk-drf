@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from django_bulk_drf.bulk_processing import (
     bulk_create_task,
     bulk_delete_task,
+    bulk_replace_task,
     bulk_update_task,
 )
 
@@ -15,12 +16,13 @@ from django_bulk_drf.bulk_processing import (
 class BulkOperationsMixin:
     """Mixin providing bulk operations through a single endpoint with different HTTP methods."""
 
-    @action(detail=False, methods=["post", "patch", "delete"], url_path="bulk")
+    @action(detail=False, methods=["post", "patch", "put", "delete"], url_path="bulk")
     def bulk(self, request):
         """
         Handle bulk operations based on HTTP method:
         - POST: Create multiple instances
-        - PATCH: Update multiple instances  
+        - PATCH: Update multiple instances (partial updates)
+        - PUT: Replace multiple instances (full updates)
         - DELETE: Delete multiple instances
         
         Returns a task ID for tracking the bulk operation.
@@ -29,6 +31,8 @@ class BulkOperationsMixin:
             return self._bulk_create(request)
         elif request.method == "PATCH":
             return self._bulk_update(request)
+        elif request.method == "PUT":
+            return self._bulk_replace(request)
         elif request.method == "DELETE":
             return self._bulk_delete(request)
     
@@ -111,6 +115,52 @@ class BulkOperationsMixin:
                 "message": f"Bulk update task started for {len(updates_list)} items",
                 "task_id": task.id,
                 "total_items": len(updates_list),
+                "status_url": f"/api/bulk-operations/{task.id}/status/",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _bulk_replace(self, request):
+        """
+        Replace multiple instances asynchronously (full updates).
+
+        Expects a JSON array of complete objects with 'id' and all required fields.
+        Returns a task ID for tracking the bulk operation.
+        """
+        replacements_list = request.data
+        if not isinstance(replacements_list, list):
+            return Response(
+                {"error": "Expected a list of objects"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not replacements_list:
+            return Response(
+                {"error": "Empty list provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate that all items have an 'id' field
+        for i, item in enumerate(replacements_list):
+            if not isinstance(item, dict) or "id" not in item:
+                return Response(
+                    {"error": f"Item at index {i} is missing 'id' field"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # Get the serializer class path
+        serializer_class = self.get_serializer_class()
+        serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
+
+        # Start the bulk replace task
+        user_id = request.user.id if request.user.is_authenticated else None
+        task = bulk_update_task.delay(serializer_class_path, replacements_list, user_id)
+
+        return Response(
+            {
+                "message": f"Bulk replace task started for {len(replacements_list)} items",
+                "task_id": task.id,
+                "total_items": len(replacements_list),
                 "status_url": f"/api/bulk-operations/{task.id}/status/",
             },
             status=status.HTTP_202_ACCEPTED,
@@ -204,3 +254,17 @@ class BulkDeleteMixin:
         Returns a task ID for tracking the bulk operation.
         """
         return BulkOperationsMixin._bulk_delete(self, request)
+
+
+class BulkReplaceMixin:
+    """Mixin to add bulk replace functionality to ViewSets."""
+
+    @action(detail=False, methods=["put"], url_path="bulk")
+    def bulk_replace(self, request):
+        """
+        Replace multiple instances asynchronously (full updates).
+
+        Expects a JSON array of complete objects with 'id' and all required fields.
+        Returns a task ID for tracking the bulk operation.
+        """
+        return BulkOperationsMixin._bulk_replace(self, request)
