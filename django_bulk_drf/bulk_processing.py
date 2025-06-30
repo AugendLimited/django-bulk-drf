@@ -348,3 +348,116 @@ def bulk_replace_task(self, serializer_class_path: str, replacements_list: list[
         BulkOperationCache.set_task_result(task_id, result.to_dict())
 
     return result.to_dict()
+
+
+@shared_task(bind=True)
+def bulk_get_task(self, model_class_path: str, serializer_class_path: str, query_params: dict, user_id: int | None = None):
+    """
+    Celery task for bulk retrieval of model instances.
+
+    Args:
+        model_class_path: Full path to the model class
+        serializer_class_path: Full path to the serializer class
+        query_params: Dictionary containing query parameters (ids, filters, etc.)
+        user_id: Optional user ID for audit purposes
+    """
+    task_id = self.request.id
+    
+    # Initialize progress tracking in Redis
+    BulkOperationCache.set_task_progress(task_id, 0, 1, "Starting bulk retrieval...")
+
+    try:
+        model_class = import_string(model_class_path)
+        serializer_class = import_string(serializer_class_path)
+        
+        # Build the queryset based on query parameters
+        queryset = model_class.objects.all()
+        
+        # Handle different query types
+        if "ids" in query_params:
+            # ID-based retrieval
+            ids_list = query_params["ids"]
+            queryset = queryset.filter(id__in=ids_list)
+            total_expected = len(ids_list)
+            
+        elif "filters" in query_params:
+            # Complex filtering
+            filters = query_params["filters"]
+            for field, value in filters.items():
+                # Support various Django ORM lookups
+                if isinstance(value, dict):
+                    # Handle complex lookups like {'gte': 100, 'lte': 200}
+                    for lookup, lookup_value in value.items():
+                        filter_key = f"{field}__{lookup}"
+                        queryset = queryset.filter(**{filter_key: lookup_value})
+                else:
+                    # Simple equality filter
+                    queryset = queryset.filter(**{field: value})
+            
+            # Get total count for progress tracking
+            total_expected = queryset.count()
+            
+        else:
+            # Default to all records (be careful with this!)
+            total_expected = queryset.count()
+            
+            # Limit large queries to prevent memory issues
+            if total_expected > 10000:  # Configurable limit
+                raise ValueError("Query would return too many records. Please add filters to limit results.")
+        
+        # Update progress
+        BulkOperationCache.set_task_progress(task_id, 0, total_expected, f"Retrieving {total_expected} records...")
+        
+        # Execute the query and serialize results
+        instances = list(queryset.iterator())  # Use iterator for memory efficiency
+        
+        # Update progress
+        BulkOperationCache.set_task_progress(task_id, len(instances), total_expected, "Serializing results...")
+        
+        # Serialize in chunks to avoid memory issues
+        chunk_size = 100
+        serialized_results = []
+        
+        for i in range(0, len(instances), chunk_size):
+            chunk = instances[i:i + chunk_size]
+            serializer = serializer_class(chunk, many=True)
+            serialized_results.extend(serializer.data)
+            
+            # Update progress
+            processed = min(i + chunk_size, len(instances))
+            BulkOperationCache.set_task_progress(
+                task_id, processed, len(instances), f"Serialized {processed}/{len(instances)} records"
+            )
+        
+        # Prepare final result
+        result = {
+            "task_id": task_id,
+            "operation_type": "bulk_get",
+            "total_records": len(serialized_results),
+            "query_params": query_params,
+            "results": serialized_results,
+            "success": True
+        }
+        
+        # Store result in cache
+        BulkOperationCache.set_task_result(task_id, result)
+        
+        logger.info(
+            "Bulk get task %s completed: %s records retrieved",
+            task_id,
+            len(serialized_results)
+        )
+        
+        return result
+
+    except Exception as e:
+        logger.exception("Bulk get task %s failed", task_id)
+        error_result = {
+            "task_id": task_id,
+            "operation_type": "bulk_get",
+            "success": False,
+            "error": str(e),
+            "query_params": query_params
+        }
+        BulkOperationCache.set_task_result(task_id, error_result)
+        return error_result

@@ -70,36 +70,43 @@ The bulk operations system consists of:
 
 ## Available Operations
 
-### 1. Bulk Create
+### 1. Bulk Retrieve
+- **Endpoint**: `GET /api/{model}/bulk/?ids=1,2,3`
+- **Method**: GET
+- **Input**: Query parameters (`ids`) or request body (complex filters)
+- **Output**: Serialized data (direct) or Task ID for large results
+
+### 2. Bulk Create
 - **Endpoint**: `POST /api/{model}/bulk/`
 - **Method**: POST
 - **Input**: Array of objects to create
 - **Output**: Task ID and status URL
 
-### 2. Bulk Update (Partial)
+### 3. Bulk Update (Partial)
 - **Endpoint**: `PATCH /api/{model}/bulk/`
 - **Method**: PATCH
 - **Input**: Array of objects with `id` and partial update data
 - **Output**: Task ID and status URL
 
-### 3. Bulk Replace (Full Update)
+### 4. Bulk Replace (Full Update)
 - **Endpoint**: `PUT /api/{model}/bulk/`
 - **Method**: PUT
 - **Input**: Array of complete objects with `id` and all required fields
 - **Output**: Task ID and status URL
 
-### 4. Bulk Delete
+### 5. Bulk Delete
 - **Endpoint**: `DELETE /api/{model}/bulk/`
 - **Method**: DELETE
 - **Input**: Array of IDs to delete
 - **Output**: Task ID and status URL
 
-### 5. Status Tracking
+### 6. Status Tracking
 - **Endpoint**: `GET /api/bulk-operations/{task_id}/status/`
 - **Output**: Task status, progress, and results
 
 ## HTTP Method Differences
 
+- **GET**: Retrieve multiple records by IDs or complex queries
 - **POST**: Creates new records (all fields required based on your model)
 - **PATCH**: Partial updates - only include fields you want to change (requires `id`)
 - **PUT**: Full replacement - all required fields must be provided (requires `id`) 
@@ -118,6 +125,32 @@ class FinancialTransactionViewSet(BulkOperationsMixin, viewsets.ModelViewSet):
 ```
 
 ### Example API Calls
+
+#### Bulk Retrieve (Simple ID-based)
+```bash
+# Small result set - returns data directly
+curl "http://localhost:8000/api/financial-transactions/bulk/?ids=1,2,3,4,5"
+```
+
+#### Bulk Retrieve (Large ID-based - Async)
+```bash
+# Large result set - returns task ID
+curl "http://localhost:8000/api/financial-transactions/bulk/?ids=1,2,3,4,5,6,7,8,...,150"
+```
+
+#### Bulk Retrieve (Complex Query)
+```bash
+# Complex filtering via request body
+curl -X GET http://localhost:8000/api/financial-transactions/bulk/ \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "filters": {
+      "amount": {"gte": 100, "lte": 1000},
+      "datetime": {"gte": "2025-01-01"},
+      "financial_account": 1
+    }
+  }'
+```
 
 #### Bulk Create
 ```bash
@@ -229,6 +262,50 @@ curl http://localhost:8000/api/bulk-operations/abc123-def456-ghi789/status/
   "status": "Task completed successfully"
 }
 ```
+
+## Bulk GET Response Formats
+
+### Small Result Sets (< 100 records)
+Returns data immediately:
+```json
+{
+  "count": 5,
+  "results": [
+    {"id": 1, "amount": "100.50", "description": "Transaction 1"},
+    {"id": 2, "amount": "75.00", "description": "Transaction 2"}
+  ],
+  "is_async": false
+}
+```
+
+### Large Result Sets (≥ 100 records)
+Returns task ID for async processing:
+```json
+{
+  "message": "Bulk get task started for 250 IDs",
+  "task_id": "abc123-def456-ghi789",
+  "total_items": 250,
+  "status_url": "/api/bulk-operations/abc123-def456-ghi789/status/",
+  "is_async": true
+}
+```
+
+### Complex Query Filters
+
+You can use Django ORM-style filters in the request body:
+
+```json
+{
+  "filters": {
+    "amount": {"gte": 100, "lte": 1000},      // amount >= 100 AND amount <= 1000
+    "datetime": {"gte": "2025-01-01"},         // datetime >= 2025-01-01
+    "financial_account": 1,                    // financial_account = 1
+    "description": {"icontains": "payment"}    // description contains "payment" (case-insensitive)
+  }
+}
+```
+
+Supported lookup types: `exact`, `gte`, `lte`, `gt`, `lt`, `in`, `icontains`, `startswith`, `endswith`, etc.
 
 ## Task States
 

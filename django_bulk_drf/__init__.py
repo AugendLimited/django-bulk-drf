@@ -12,7 +12,8 @@ __email__ = "konrad.beck@merchantcapital.co.za"
 # Make common imports available at package level
 from .bulk_mixins import (
     BulkCreateMixin,
-    BulkDeleteMixin, 
+    BulkDeleteMixin,
+    BulkGetMixin,
     BulkOperationsMixin,
     BulkReplaceMixin,
     BulkUpdateMixin,
@@ -22,6 +23,7 @@ from .bulk_views import BulkOperationStatusView
 __all__ = [
     "BulkCreateMixin",
     "BulkDeleteMixin",
+    "BulkGetMixin",
     "BulkOperationsMixin",
     "BulkReplaceMixin", 
     "BulkUpdateMixin",

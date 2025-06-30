@@ -356,3 +356,17 @@ class BulkReplaceMixin:
         Returns a task ID for tracking the bulk operation.
         """
         return BulkOperationsMixin._bulk_replace(self, request)
+
+
+class BulkGetMixin:
+    """Mixin to add bulk get functionality to ViewSets."""
+
+    @action(detail=False, methods=["get"], url_path="bulk")
+    def bulk_get(self, request):
+        """
+        Retrieve multiple instances using bulk query.
+
+        Supports ID-based retrieval via query params or complex filters via request body.
+        Returns serialized data or task ID for tracking the bulk operation.
+        """
+        return BulkOperationsMixin._bulk_get(self, request)

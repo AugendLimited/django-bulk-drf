@@ -112,6 +112,48 @@ class BulkOperationsExample:
             print(f"❌ Error: {response.status_code} - {response.text}")
             return ""
 
+    def bulk_get_financial_transactions(self, ids_list: list[int] = None, query_filters: dict = None) -> dict:
+        """
+        Retrieve multiple financial transactions using bulk endpoint with GET method.
+
+        Args:
+            ids_list: List of transaction IDs to retrieve
+            query_filters: Dictionary of filters for complex queries
+
+        Returns:
+            Response data (either direct results or task info)
+        """
+        url = f"{self.base_url}/financial-transactions/bulk/"
+        
+        if ids_list:
+            # Simple ID-based retrieval via query params
+            ids_str = ",".join(map(str, ids_list))
+            response = self.session.get(f"{url}?ids={ids_str}")
+        elif query_filters:
+            # Complex query via request body
+            response = self.session.get(url, json=query_filters)
+        else:
+            print("❌ Error: Must provide either ids_list or query_filters")
+            return {}
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("is_async", False):
+                print(f"✅ Bulk get task started: {result.get('message', '')}")
+                print(f"📋 Task ID: {result['task_id']}")
+                return result
+            else:
+                print(f"✅ Retrieved {result['count']} records directly")
+                return result
+        elif response.status_code == 202:
+            result = response.json()
+            print(f"✅ Bulk get task started: {result['message']}")
+            print(f"📋 Task ID: {result['task_id']}")
+            return result
+        else:
+            print(f"❌ Error: {response.status_code} - {response.text}")
+            return {}
+
     def check_task_status(self, task_id: str) -> dict:
         """
         Check the status of a bulk operation task.
