@@ -17,28 +17,55 @@ from django_bulk_drf.bulk_processing import (
 class BulkOperationsMixin:
     """Mixin providing bulk operations through a single endpoint with different HTTP methods."""
 
-    @action(detail=False, methods=["get", "post", "patch", "put", "delete"], url_path="bulk")
-    def bulk(self, request):
+    @action(detail=False, methods=["get"], url_path="bulk")
+    def bulk_get(self, request):
         """
-        Handle bulk operations based on HTTP method:
-        - GET: Retrieve multiple instances by IDs or query
-        - POST: Create multiple instances
-        - PATCH: Update multiple instances (partial updates)
-        - PUT: Replace multiple instances (full updates)
-        - DELETE: Delete multiple instances
+        Retrieve multiple instances by IDs or query parameters.
         
-        Returns a task ID for tracking the operation.
+        Supports ID-based retrieval via ?ids=1,2,3 or complex filters in request body.
+        Returns serialized data directly for small results, or task ID for large results.
         """
-        if request.method == "GET":
-            return self._bulk_get(request)
-        elif request.method == "POST":
-            return self._bulk_create(request)
-        elif request.method == "PATCH":
-            return self._bulk_update(request)
-        elif request.method == "PUT":
-            return self._bulk_replace(request)
-        elif request.method == "DELETE":
-            return self._bulk_delete(request)
+        return self._bulk_get(request)
+
+    @action(detail=False, methods=["post"], url_path="bulk")
+    def bulk_create(self, request):
+        """
+        Create multiple instances asynchronously.
+        
+        Expects a JSON array of objects to create.
+        Returns a task ID for tracking the bulk operation.
+        """
+        return self._bulk_create(request)
+
+    @action(detail=False, methods=["patch"], url_path="bulk")
+    def bulk_update(self, request):
+        """
+        Update multiple instances asynchronously (partial updates).
+        
+        Expects a JSON array of objects with 'id' and fields to update.
+        Returns a task ID for tracking the bulk operation.
+        """
+        return self._bulk_update(request)
+
+    @action(detail=False, methods=["put"], url_path="bulk")
+    def bulk_replace(self, request):
+        """
+        Replace multiple instances asynchronously (full updates).
+        
+        Expects a JSON array of complete objects with 'id' and all required fields.
+        Returns a task ID for tracking the bulk operation.
+        """
+        return self._bulk_replace(request)
+
+    @action(detail=False, methods=["delete"], url_path="bulk")
+    def bulk_delete(self, request):
+        """
+        Delete multiple instances asynchronously.
+        
+        Expects a JSON array of IDs to delete.
+        Returns a task ID for tracking the bulk operation.
+        """
+        return self._bulk_delete(request)
     
     def _bulk_create(self, request):
         """
@@ -158,7 +185,7 @@ class BulkOperationsMixin:
 
         # Start the bulk replace task
         user_id = request.user.id if request.user.is_authenticated else None
-        task = bulk_update_task.delay(serializer_class_path, replacements_list, user_id)
+        task = bulk_replace_task.delay(serializer_class_path, replacements_list, user_id)
 
         return Response(
             {
@@ -251,7 +278,7 @@ class BulkOperationsMixin:
                     serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
                     
                     user_id = request.user.id if request.user.is_authenticated else None
-                    task = bulk_create_task.delay(serializer_class_path, ids_list, user_id)
+                    task = bulk_get_task.delay(model_class_path, serializer_class_path, {"ids": ids_list}, user_id)
                     
                     return Response({
                         "message": f"Bulk get task started for {len(ids_list)} IDs",
@@ -285,7 +312,7 @@ class BulkOperationsMixin:
             serializer_class_path = f"{serializer_class.__module__}.{serializer_class.__name__}"
             
             user_id = request.user.id if request.user.is_authenticated else None
-            task = bulk_create_task.delay(serializer_class_path, query_data, user_id)
+            task = bulk_get_task.delay(model_class_path, serializer_class_path, query_data, user_id)
             
             return Response({
                 "message": "Bulk query task started",
@@ -305,8 +332,8 @@ class BulkOperationsMixin:
 class BulkCreateMixin:
     """Mixin to add bulk create functionality to ViewSets."""
 
-    @action(detail=False, methods=["post"], url_path="bulk")
-    def bulk_create(self, request):
+    @action(detail=False, methods=["post"], url_path="bulk-create")
+    def bulk_create_action(self, request):
         """
         Create multiple instances asynchronously.
 
@@ -319,8 +346,8 @@ class BulkCreateMixin:
 class BulkUpdateMixin:
     """Mixin to add bulk update functionality to ViewSets."""
 
-    @action(detail=False, methods=["patch"], url_path="bulk")
-    def bulk_update(self, request):
+    @action(detail=False, methods=["patch"], url_path="bulk-update")
+    def bulk_update_action(self, request):
         """
         Update multiple instances asynchronously.
 
@@ -333,8 +360,8 @@ class BulkUpdateMixin:
 class BulkDeleteMixin:
     """Mixin to add bulk delete functionality to ViewSets."""
 
-    @action(detail=False, methods=["delete"], url_path="bulk")
-    def bulk_delete(self, request):
+    @action(detail=False, methods=["delete"], url_path="bulk-delete")
+    def bulk_delete_action(self, request):
         """
         Delete multiple instances asynchronously.
 
@@ -347,8 +374,8 @@ class BulkDeleteMixin:
 class BulkReplaceMixin:
     """Mixin to add bulk replace functionality to ViewSets."""
 
-    @action(detail=False, methods=["put"], url_path="bulk")
-    def bulk_replace(self, request):
+    @action(detail=False, methods=["put"], url_path="bulk-replace")
+    def bulk_replace_action(self, request):
         """
         Replace multiple instances asynchronously (full updates).
 
@@ -361,8 +388,8 @@ class BulkReplaceMixin:
 class BulkGetMixin:
     """Mixin to add bulk get functionality to ViewSets."""
 
-    @action(detail=False, methods=["get"], url_path="bulk")
-    def bulk_get(self, request):
+    @action(detail=False, methods=["get"], url_path="bulk-get")
+    def bulk_get_action(self, request):
         """
         Retrieve multiple instances using bulk query.
 
