@@ -140,7 +140,7 @@ class BulkOperationsMixin:
         data_list = request.data
         if not isinstance(data_list, list):
             return Response(
-                {"error": "Expected a list of objects"},
+                {"error": "Expected a list (array) of objects."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -180,7 +180,7 @@ class BulkOperationsMixin:
         updates_list = request.data
         if not isinstance(updates_list, list):
             return Response(
-                {"error": "Expected a list of objects"},
+                {"error": "Expected a list (array) of objects."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -228,7 +228,7 @@ class BulkOperationsMixin:
         replacements_list = request.data
         if not isinstance(replacements_list, list):
             return Response(
-                {"error": "Expected a list of objects"},
+                {"error": "Expected a list (array) of objects."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -278,7 +278,7 @@ class BulkOperationsMixin:
         ids_list = request.data
         if not isinstance(ids_list, list):
             return Response(
-                {"error": "Expected a list of IDs"},
+                {"error": "Expected a list (array) of IDs."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
