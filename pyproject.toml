@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "django-bulk-drf"
-version = "0.1.7"
+version = "0.1.8"
 description = "Django REST Framework mixins for asynchronous bulk operations with Celery and Redis"
 authors = ["Konrad Beck <konrad.beck@merchantcapital.co.za>"]
 readme = "README.md"
