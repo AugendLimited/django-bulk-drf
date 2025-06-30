@@ -10,6 +10,7 @@ This script shows how to:
 Run this script from a Django shell or as a management command.
 """
 import time
+import csv
 
 import requests
 
@@ -219,6 +220,85 @@ class BulkOperationsExample:
         print(f"⏰ Timeout waiting for task {task_id}")
         return self.check_task_status(task_id)
 
+    def bulk_create_csv_financial_transactions(self, csv_file_path: str) -> dict:
+        """
+        Create multiple financial transactions using CSV file upload.
+
+        Args:
+            csv_file_path: Path to the CSV file to upload
+
+        Returns:
+            Response data with task info
+        """
+        url = f"{self.base_url}/financial-transactions/bulk/"
+        
+        try:
+            with open(csv_file_path, 'rb') as csv_file:
+                files = {'file': csv_file}
+                response = self.session.post(url, files=files)
+            
+            if response.status_code == 202:
+                result = response.json()
+                print(f"✅ CSV bulk create started: {result['message']}")
+                print(f"📋 Task ID: {result['task_id']}")
+                print(f"📁 Source file: {result['source_file']}")
+                return result
+            else:
+                print(f"❌ Error: {response.status_code} - {response.text}")
+                return {}
+                
+        except FileNotFoundError:
+            print(f"❌ Error: CSV file not found: {csv_file_path}")
+            return {}
+        except Exception as e:
+            print(f"❌ Error uploading CSV: {str(e)}")
+            return {}
+
+    def create_sample_csv(self, filename: str = "sample_transactions.csv"):
+        """
+        Create a sample CSV file for testing bulk operations.
+        
+        Args:
+            filename: Name of the CSV file to create
+        """
+        sample_data = [
+            {
+                "amount": "100.50",
+                "description": "Sample transaction 1",
+                "datetime": "2025-01-01T10:00:00Z",
+                "financial_account": 1,
+                "classification_status": 1
+            },
+            {
+                "amount": "-25.75",
+                "description": "Sample transaction 2", 
+                "datetime": "2025-01-01T11:00:00Z",
+                "financial_account": 1,
+                "classification_status": 1
+            },
+            {
+                "amount": "500.00",
+                "description": "Sample transaction 3",
+                "datetime": "2025-01-01T12:00:00Z",
+                "financial_account": 2,
+                "classification_status": 2
+            }
+        ]
+        
+        try:
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = sample_data[0].keys()
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(sample_data)
+            
+            print(f"✅ Created sample CSV file: {filename}")
+            print(f"📝 Contains {len(sample_data)} sample transactions")
+            return filename
+            
+        except Exception as e:
+            print(f"❌ Error creating CSV file: {str(e)}")
+            return None
 
 def run_example():
     """Run the bulk operations example."""
@@ -308,6 +388,27 @@ def run_example():
                         print(f"📊 Delete Results:")
                         print(f"   • Deleted: {delete_task_result.get('success_count', 0)}")
                         print(f"   • Errors: {delete_task_result.get('error_count', 0)}")
+    
+    # Example 4: Bulk Create from CSV
+    print("\n📁 Example 4: Bulk Create Financial Transactions from CSV")
+    
+    # Create a sample CSV file
+    csv_file = example.create_sample_csv()
+    
+    if csv_file:
+        # Perform bulk create using the CSV file
+        csv_task_id = example.bulk_create_csv_financial_transactions(csv_file)
+        
+        if csv_task_id:
+            # Wait for completion and get results
+            csv_result = example.wait_for_completion(csv_task_id)
+            
+            if csv_result.get("state") == "SUCCESS":
+                csv_task_result = csv_result.get("result", {})
+                print(f"📊 CSV Upload Results:")
+                print(f"   • Created: {csv_task_result.get('success_count', 0)}")
+                print(f"   • Errors: {csv_task_result.get('error_count', 0)}")
+                print(f"   • Created IDs: {csv_task_result.get('created_ids', [])}")
     
     print("\n🎉 Bulk Operations Example Completed!")
 

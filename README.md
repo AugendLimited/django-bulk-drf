@@ -67,8 +67,21 @@ The bulk operations system consists of:
 - ✅ **Result Caching**: Final results cached in Redis for 24 hours
 - ✅ **Validation**: Full DRF serializer validation for all items
 - ✅ **Atomic Operations**: Database transactions ensure data consistency
+- ✅ **Unified Endpoint**: Single `/bulk` endpoint supports both JSON and CSV via Content-Type detection
+- ✅ **RESTful Design**: Uses HTTP methods (GET, POST, PATCH, PUT, DELETE) for different operations
+
+## Content-Type Detection
+
+The system automatically detects the input format based on the HTTP `Content-Type` header:
+
+- **`Content-Type: application/json`** → JSON data processing
+- **`Content-Type: multipart/form-data`** → CSV file upload processing
+
+This means you can use the same `/bulk` endpoint for both JSON and CSV operations, making the API clean and RESTful.
 
 ## Available Operations
+
+### JSON-based Operations
 
 ### 1. Bulk Retrieve
 - **Endpoint**: `GET /api/{model}/bulk/?ids=1,2,3`
@@ -100,7 +113,39 @@ The bulk operations system consists of:
 - **Input**: Array of IDs to delete
 - **Output**: Task ID and status URL
 
-### 6. Status Tracking
+### CSV-based Operations (Salesforce-style)
+
+All CSV operations use the same `/bulk` endpoint with `Content-Type: multipart/form-data`:
+
+### 6. CSV Bulk Create
+- **Endpoint**: `POST /api/{model}/bulk/`
+- **Method**: POST
+- **Content-Type**: `multipart/form-data`
+- **Input**: CSV file upload with headers matching model fields
+- **Output**: Task ID and status URL
+
+### 7. CSV Bulk Update (Partial)
+- **Endpoint**: `PATCH /api/{model}/bulk/`
+- **Method**: PATCH
+- **Content-Type**: `multipart/form-data`
+- **Input**: CSV file with `id` column and fields to update
+- **Output**: Task ID and status URL
+
+### 8. CSV Bulk Replace (Full Update)
+- **Endpoint**: `PUT /api/{model}/bulk/`
+- **Method**: PUT
+- **Content-Type**: `multipart/form-data`
+- **Input**: CSV file with `id` column and all required fields
+- **Output**: Task ID and status URL
+
+### 9. CSV Bulk Delete
+- **Endpoint**: `DELETE /api/{model}/bulk/`
+- **Method**: DELETE
+- **Content-Type**: `multipart/form-data`
+- **Input**: CSV file with `id` column containing IDs to delete
+- **Output**: Task ID and status URL
+
+### 10. Status Tracking
 - **Endpoint**: `GET /api/bulk-operations/{task_id}/status/`
 - **Output**: Task status, progress, and results
 
@@ -262,6 +307,77 @@ curl http://localhost:8000/api/bulk-operations/abc123-def456-ghi789/status/
   "status": "Task completed successfully"
 }
 ```
+
+### CSV Upload Examples
+
+#### CSV Bulk Create
+```bash
+# Upload CSV file for bulk creation
+curl -X POST http://localhost:8000/api/financial-transactions/bulk/ \\
+  -H "Authorization: Bearer your-token" \\
+  -F "file=@transactions.csv"
+```
+
+**Sample CSV (transactions.csv):**
+```csv
+amount,description,datetime,financial_account,classification_status
+100.50,"Transaction 1","2025-01-01T10:00:00Z",1,1
+-25.75,"Transaction 2","2025-01-01T11:00:00Z",1,1
+500.00,"Transaction 3","2025-01-01T12:00:00Z",2,2
+```
+
+#### CSV Bulk Update
+```bash
+# Upload CSV file for bulk updates
+curl -X PATCH http://localhost:8000/api/financial-transactions/bulk/ \\
+  -H "Authorization: Bearer your-token" \\
+  -F "file=@updates.csv"
+```
+
+**Sample CSV (updates.csv):**
+```csv
+id,amount,description
+1,150.00,"Updated Transaction 1"
+2,,"Updated Transaction 2"
+3,75.50,
+```
+
+#### CSV Bulk Delete
+```bash
+# Upload CSV file for bulk deletion
+curl -X DELETE http://localhost:8000/api/financial-transactions/bulk/ \\
+  -H "Authorization: Bearer your-token" \\
+  -F "file=@delete_ids.csv"
+```
+
+**Sample CSV (delete_ids.csv):**
+```csv
+id
+1
+2
+3
+4
+5
+```
+
+### CSV Format Requirements
+
+1. **File encoding**: UTF-8 (supports BOM)
+2. **File extension**: Must be `.csv`
+3. **Headers**: First row must contain field names
+4. **File size limit**: 10MB (configurable via `csv_max_file_size` attribute)
+5. **Required fields**:
+   - **Create**: All required model fields
+   - **Update/Replace**: `id` column + fields to update
+   - **Delete**: `id` column only
+
+### CSV Benefits
+
+- ✅ **Easy to create**: Use Excel, Google Sheets, or any CSV editor
+- ✅ **Memory efficient**: Streamed processing for large files
+- ✅ **Human readable**: Easy to review and edit data
+- ✅ **Widely supported**: Standard format across platforms
+- ✅ **Compact**: Smaller than equivalent JSON for large datasets
 
 ## Bulk GET Response Formats
 
