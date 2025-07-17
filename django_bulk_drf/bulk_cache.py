@@ -74,3 +74,41 @@ class BulkOperationCache:
         if cached_data:
             return json.loads(cached_data)
         return None
+
+    @classmethod
+    def set_task_progress(cls, task_id: str, current: int, total: int, message: str, timeout: int = 86400) -> None:
+        """
+        Store task progress in Redis.
+
+        Args:
+            task_id: The Celery task ID
+            current: Current progress count
+            total: Total items to process
+            message: Progress message
+            timeout: Cache timeout in seconds (default: 24 hours)
+        """
+        progress_data = {
+            "current": current,
+            "total": total,
+            "percentage": round((current / total * 100) if total > 0 else 0, 2),
+            "message": message,
+        }
+        key = cls._make_key(task_id, "progress")
+        cache.set(key, json.dumps(progress_data), timeout)
+
+    @classmethod
+    def get_task_progress(cls, task_id: str) -> dict[str, Any] | None:
+        """
+        Retrieve task progress from Redis.
+
+        Args:
+            task_id: The Celery task ID
+
+        Returns:
+            Progress data dictionary or None if not found
+        """
+        key = cls._make_key(task_id, "progress")
+        cached_data = cache.get(key)
+        if cached_data:
+            return json.loads(cached_data)
+        return None

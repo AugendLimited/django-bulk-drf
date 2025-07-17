@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "django-bulk-drf"
-version = "0.1.9"
+version = "0.1.12"
 description = "Django REST Framework mixins for asynchronous bulk operations with Celery and Redis"
 authors = ["Konrad Beck <konrad.beck@merchantcapital.co.za>"]
 readme = "README.md"
@@ -45,6 +45,15 @@ requests = "^2.31.0"  # For examples and testing
 # Optional dependencies for enhanced functionality
 django-extensions = "^3.2.0"  # For management commands
 flower = "^2.0.0"  # For Celery monitoring
+
+[tool.poetry.group.reporting.dependencies]
+# Reporting and analytics dependencies
+pandas = "^2.0.0"  # For data manipulation and export
+openpyxl = "^3.1.0"  # For Excel export
+reportlab = "^4.0.0"  # For PDF export
+matplotlib = "^3.7.0"  # For chart generation
+seaborn = "^0.12.0"  # For statistical visualizations
+plotly = "^5.15.0"  # For interactive charts
 
 [build-system]
 requires = ["poetry-core"]

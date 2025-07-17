@@ -141,6 +141,8 @@ def bulk_create_task(self, serializer_class_path: str, data_list: list[dict], us
 def bulk_update_task(self, serializer_class_path: str, updates_list: list[dict], user_id: int | None = None):
     """
     Celery task for bulk updating of model instances.
+    
+    Uses bulk_update to reduce database queries from N+1 to just 2 queries.
 
     Args:
         serializer_class_path: Full path to the serializer class
@@ -157,6 +159,26 @@ def bulk_update_task(self, serializer_class_path: str, updates_list: list[dict],
         serializer_class = import_string(serializer_class_path)
         model_class = serializer_class.Meta.model
 
+        # Extract all IDs for bulk fetch
+        ids_to_update = [update_data.get("id") for update_data in updates_list if update_data.get("id")]
+        
+        if not ids_to_update:
+            result.add_error(0, "No valid IDs found in update data")
+            BulkOperationCache.set_task_result(task_id, result.to_dict())
+            return result.to_dict()
+
+        # Single query to fetch all instances
+        BulkOperationCache.set_task_progress(task_id, 0, len(updates_list), "Fetching instances...")
+        instances_dict = {
+            instance.id: instance 
+            for instance in model_class.objects.filter(id__in=ids_to_update)
+        }
+
+        # Validate and prepare updates
+        BulkOperationCache.set_task_progress(task_id, 0, len(updates_list), "Validating updates...")
+        valid_updates = []
+        fields_to_update = set()
+
         for index, update_data in enumerate(updates_list):
             try:
                 instance_id = update_data.get("id")
@@ -164,27 +186,51 @@ def bulk_update_task(self, serializer_class_path: str, updates_list: list[dict],
                     result.add_error(index, "Missing 'id' field", update_data)
                     continue
 
-                try:
-                    instance = model_class.objects.get(id=instance_id)
-                except model_class.DoesNotExist:
+                instance = instances_dict.get(instance_id)
+                if not instance:
                     result.add_error(index, f"Instance with id {instance_id} not found", update_data)
                     continue
 
                 serializer = serializer_class(instance, data=update_data, partial=True)
                 if serializer.is_valid():
-                    serializer.save()
-                    result.add_success(instance.id, "updated")
+                    # Update instance with validated data
+                    for field, value in serializer.validated_data.items():
+                        setattr(instance, field, value)
+                        fields_to_update.add(field)
+                    
+                    valid_updates.append((index, instance, instance_id))
                 else:
                     result.add_error(index, str(serializer.errors), update_data)
 
             except (ValidationError, ValueError) as e:
                 result.add_error(index, str(e), update_data)
 
-            # Update progress every 10 items or at the end
+            # Update progress every 10 items
             if (index + 1) % 10 == 0 or index == len(updates_list) - 1:
                 BulkOperationCache.set_task_progress(
-                    task_id, index + 1, len(updates_list), f"Updated {index + 1}/{len(updates_list)} items",
+                    task_id, index + 1, len(updates_list), f"Validated {index + 1}/{len(updates_list)} items",
                 )
+
+        # Single bulk_update query for all valid instances
+        if valid_updates:
+            BulkOperationCache.set_task_progress(
+                task_id, len(updates_list), len(updates_list), "Performing bulk update..."
+            )
+            
+            instances_to_update = [instance for _, instance, _ in valid_updates]
+            fields_list = list(fields_to_update)
+            
+            with transaction.atomic():
+                # Single query to update all instances
+                updated_count = model_class.objects.bulk_update(
+                    instances_to_update, 
+                    fields_list,
+                    batch_size=1000  # Process in batches for very large updates
+                )
+                
+                # Mark successful updates
+                for _, instance, instance_id in valid_updates:
+                    result.add_success(instance_id, "updated")
 
         # Store final result in cache
         BulkOperationCache.set_task_result(task_id, result.to_dict())
@@ -208,6 +254,8 @@ def bulk_update_task(self, serializer_class_path: str, updates_list: list[dict],
 def bulk_delete_task(self, model_class_path: str, ids_list: list[int], user_id: int | None = None):
     """
     Celery task for bulk deletion of model instances.
+    
+    Uses single DELETE query instead of N+1 individual deletes.
 
     Args:
         model_class_path: Full path to the model class
@@ -223,21 +271,32 @@ def bulk_delete_task(self, model_class_path: str, ids_list: list[int], user_id: 
     try:
         model_class = import_string(model_class_path)
 
-        for index, instance_id in enumerate(ids_list):
-            try:
-                instance = model_class.objects.get(id=instance_id)
-                instance.delete()
-                result.add_success(instance_id, "deleted")
-            except model_class.DoesNotExist:
-                result.add_error(index, f"Instance with id {instance_id} not found", instance_id)
-            except (ValidationError, ValueError) as e:
-                result.add_error(index, str(e), instance_id)
+        # Validate IDs first
+        BulkOperationCache.set_task_progress(task_id, 0, len(ids_list), "Validating IDs...")
+        
+        # Check which IDs actually exist in one query
+        existing_ids = set(
+            model_class.objects.filter(id__in=ids_list).values_list('id', flat=True)
+        )
+        
+        # Track missing IDs
+        missing_ids = set(ids_list) - existing_ids
+        for missing_id in missing_ids:
+            result.add_error(ids_list.index(missing_id), f"Instance with id {missing_id} not found", missing_id)
 
-            # Update progress every 10 items or at the end
-            if (index + 1) % 10 == 0 or index == len(ids_list) - 1:
-                BulkOperationCache.set_task_progress(
-                    task_id, index + 1, len(ids_list), f"Deleted {index + 1}/{len(ids_list)} items",
-                )
+        # Perform bulk delete in a single query
+        if existing_ids:
+            BulkOperationCache.set_task_progress(
+                task_id, len(ids_list), len(ids_list), "Performing bulk delete..."
+            )
+            
+            with transaction.atomic():
+                # Single DELETE query for all existing instances
+                deleted_count, _ = model_class.objects.filter(id__in=existing_ids).delete()
+                
+                # Mark successful deletions
+                for instance_id in existing_ids:
+                    result.add_success(instance_id, "deleted")
 
         # Store final result in cache
         BulkOperationCache.set_task_result(task_id, result.to_dict())
@@ -350,10 +409,69 @@ def bulk_replace_task(self, serializer_class_path: str, replacements_list: list[
     return result.to_dict()
 
 
+def optimize_queryset_for_serializer(queryset, serializer_class):
+    """
+    Automatically optimize queryset with select_related and prefetch_related
+    based on serializer fields and model relationships.
+    
+    Args:
+        queryset: The base queryset
+        serializer_class: The serializer class to analyze
+        
+    Returns:
+        Optimized queryset
+    """
+    model = queryset.model
+    
+    # Get serializer fields to analyze relationships
+    serializer = serializer_class()
+    fields = serializer.get_fields()
+    
+    # Collect foreign key and one-to-one fields for select_related
+    select_related_fields = []
+    prefetch_related_fields = []
+    
+    for field_name, field in fields.items():
+        if hasattr(field, 'source') and field.source:
+            field_path = field.source
+        else:
+            field_path = field_name
+            
+        # Check if this field corresponds to a model relationship
+        if '__' in field_path:
+            # Handle nested relationships like 'user__profile'
+            parts = field_path.split('__')
+            if len(parts) == 2:
+                select_related_fields.append(field_path)
+        else:
+            # Check if it's a direct foreign key or one-to-one
+            try:
+                field_obj = model._meta.get_field(field_path)
+                if hasattr(field_obj, 'related_model'):
+                    if field_obj.many_to_one or field_obj.one_to_one:
+                        select_related_fields.append(field_path)
+                    elif field_obj.one_to_many or field_obj.many_to_many:
+                        prefetch_related_fields.append(field_path)
+            except:
+                # Field doesn't exist on model, skip
+                pass
+    
+    # Apply optimizations
+    if select_related_fields:
+        queryset = queryset.select_related(*select_related_fields)
+    
+    if prefetch_related_fields:
+        queryset = queryset.prefetch_related(*prefetch_related_fields)
+    
+    return queryset
+
+
 @shared_task(bind=True)
 def bulk_get_task(self, model_class_path: str, serializer_class_path: str, query_params: dict, user_id: int | None = None):
     """
     Celery task for bulk retrieval of model instances.
+    
+    Includes automatic query optimization with select_related/prefetch_related.
 
     Args:
         model_class_path: Full path to the model class
@@ -404,6 +522,10 @@ def bulk_get_task(self, model_class_path: str, serializer_class_path: str, query
             # Limit large queries to prevent memory issues
             if total_expected > 10000:  # Configurable limit
                 raise ValueError("Query would return too many records. Please add filters to limit results.")
+        
+        # Apply query optimizations
+        BulkOperationCache.set_task_progress(task_id, 0, total_expected, "Optimizing query...")
+        queryset = optimize_queryset_for_serializer(queryset, serializer_class)
         
         # Update progress
         BulkOperationCache.set_task_progress(task_id, 0, total_expected, f"Retrieving {total_expected} records...")

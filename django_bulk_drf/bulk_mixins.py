@@ -18,10 +18,6 @@ from django_bulk_drf.bulk_processing import (
 class BulkOperationsMixin:
     """Mixin providing bulk operations through a single endpoint with different HTTP methods."""
 
-    """
-    Mixin to support both single and bulk create/update operations out of the box.
-    """
-
     def get_serializer(self, *args, **kwargs):
         data = kwargs.get("data", None)
         if data is not None and isinstance(data, list):
