@@ -155,7 +155,7 @@ class BulkOperationsExample:
             print(f"❌ Error: {response.status_code} - {response.text}")
             return {}
 
-    def bulk_upsert_financial_transactions(self, data: list[dict], unique_fields: list[str], update_fields: list[str] = None) -> str:
+    def bulk_upsert_financial_transactions(self, data: list[dict], unique_fields: list[str], salesforce_style: bool = True) -> str:
         """
         Upsert multiple financial transactions using PATCH bulk endpoint.
         
@@ -163,24 +163,26 @@ class BulkOperationsExample:
         new records or update existing ones based on unique field constraints.
 
         Args:
-            data: List of transaction data dictionaries
+            data: List of transaction data dictionaries (or single dict for single upsert)
             unique_fields: List of field names that form the unique constraint
-            update_fields: Optional list of field names to update on conflict
+            salesforce_style: If True, use query params (default). If False, use legacy body structure.
 
         Returns:
             Task ID for tracking the operation
         """
         url = f"{self.base_url}/financial-transactions/bulk/"
         
-        # Prepare the request payload
-        payload = {
-            "data": data,
-            "unique_fields": unique_fields,
-        }
-        if update_fields:
-            payload["update_fields"] = update_fields
-        
-        response = self.session.patch(url, json=payload)
+        if salesforce_style:
+            # Salesforce-style: unique_fields in query params, data as payload
+            params = {"unique_fields": ",".join(unique_fields)}
+            response = self.session.patch(url, json=data, params=params)
+        else:
+            # Legacy style: structured body with data, unique_fields, update_fields
+            payload = {
+                "data": data,
+                "unique_fields": unique_fields,
+            }
+            response = self.session.patch(url, json=payload)
         
         if response.status_code == 202:
             result = response.json()
@@ -188,8 +190,8 @@ class BulkOperationsExample:
             print(f"📋 Task ID: {result['task_id']}")
             print(f"🔗 Status URL: {result['status_url']}")
             print(f"🔑 Unique fields: {unique_fields}")
-            if update_fields:
-                print(f"📝 Update fields: {update_fields}")
+            style = "Salesforce-style" if salesforce_style else "Legacy-style"
+            print(f"🎯 Style: {style}")
             return result["task_id"]
         else:
             print(f"❌ Error: {response.status_code} - {response.text}")
@@ -198,11 +200,14 @@ class BulkOperationsExample:
     def bulk_upsert_csv_financial_transactions(self, csv_file_path: str, unique_fields: list[str], update_fields: list[str] = None) -> dict:
         """
         Upsert multiple financial transactions from CSV file using PATCH bulk endpoint.
+        
+        Note: CSV upsert currently uses form data approach (unique_fields in form data).
+        Query param style for CSV is not yet implemented.
 
         Args:
             csv_file_path: Path to the CSV file
             unique_fields: List of field names that form the unique constraint
-            update_fields: Optional list of field names to update on conflict
+            update_fields: Optional list of field names to update on conflict (auto-inferred if not provided)
 
         Returns:
             Response data with task information
@@ -487,8 +492,8 @@ def run_example():
                 print(f"   • Errors: {csv_task_result.get('error_count', 0)}")
                 print(f"   • Created IDs: {csv_task_result.get('created_ids', [])}")
     
-    # Example 5: Bulk Upsert (similar to Django's bulk_create with update_conflicts=True)
-    print("\n🔄 Example 5: Bulk Upsert Financial Transactions")
+    # Example 5: Bulk Upsert (Salesforce-style with query params)
+    print("\n🔄 Example 5: Bulk Upsert Financial Transactions (Salesforce-style)")
     
     # Sample upsert data - this will create new records or update existing ones
     # based on the unique constraint of financial_account + datetime
@@ -519,13 +524,11 @@ def run_example():
     # Define unique fields that form the constraint
     unique_fields = ["financial_account", "datetime"]
     
-    # Define which fields to update on conflict (optional)
-    update_fields = ["amount", "description", "classification_status"]
-    
+    # Salesforce-style: unique_fields in query params, update_fields auto-inferred
     upsert_task_id = example.bulk_upsert_financial_transactions(
         data=upsert_data,
         unique_fields=unique_fields,
-        update_fields=update_fields
+        salesforce_style=True  # Use query params approach
     )
     
     if upsert_task_id:
@@ -534,12 +537,56 @@ def run_example():
         
         if upsert_result.get("state") == "SUCCESS":
             upsert_task_result = upsert_result.get("result", {})
-            print(f"📊 Upsert Results:")
+            print(f"📊 Salesforce-style Upsert Results:")
             print(f"   • Created: {len(upsert_task_result.get('created_ids', []))}")
             print(f"   • Updated: {len(upsert_task_result.get('updated_ids', []))}")
             print(f"   • Errors: {upsert_task_result.get('error_count', 0)}")
             print(f"   • Created IDs: {upsert_task_result.get('created_ids', [])}")
             print(f"   • Updated IDs: {upsert_task_result.get('updated_ids', [])}")
+    
+    # Example 5b: Single object upsert (Salesforce-style)
+    print("\n🔄 Example 5b: Single Object Upsert (Salesforce-style)")
+    
+    single_upsert_data = {
+        "amount": "999.99",
+        "description": "Single upsert transaction",
+        "datetime": "2025-01-01T14:00:00Z",
+        "financial_account": 1,
+        "classification_status": 1,
+    }
+    
+    single_upsert_task_id = example.bulk_upsert_financial_transactions(
+        data=single_upsert_data,  # Single object, not array
+        unique_fields=unique_fields,
+        salesforce_style=True
+    )
+    
+    if single_upsert_task_id:
+        single_upsert_result = example.wait_for_completion(single_upsert_task_id)
+        if single_upsert_result.get("state") == "SUCCESS":
+            single_upsert_task_result = single_upsert_result.get("result", {})
+            print(f"📊 Single Upsert Results:")
+            print(f"   • Created: {len(single_upsert_task_result.get('created_ids', []))}")
+            print(f"   • Updated: {len(single_upsert_task_result.get('updated_ids', []))}")
+            print(f"   • Errors: {single_upsert_task_result.get('error_count', 0)}")
+    
+    # Example 5c: Legacy-style upsert (for backward compatibility)
+    print("\n🔄 Example 5c: Legacy-style Upsert (backward compatibility)")
+    
+    legacy_upsert_task_id = example.bulk_upsert_financial_transactions(
+        data=upsert_data,
+        unique_fields=unique_fields,
+        salesforce_style=False  # Use legacy body structure
+    )
+    
+    if legacy_upsert_task_id:
+        legacy_upsert_result = example.wait_for_completion(legacy_upsert_task_id)
+        if legacy_upsert_result.get("state") == "SUCCESS":
+            legacy_upsert_task_result = legacy_upsert_result.get("result", {})
+            print(f"📊 Legacy-style Upsert Results:")
+            print(f"   • Created: {len(legacy_upsert_task_result.get('created_ids', []))}")
+            print(f"   • Updated: {len(legacy_upsert_task_result.get('updated_ids', []))}")
+            print(f"   • Errors: {legacy_upsert_task_result.get('error_count', 0)}")
     
     # Example 6: Bulk Upsert from CSV
     print("\n📁 Example 6: Bulk Upsert Financial Transactions from CSV")

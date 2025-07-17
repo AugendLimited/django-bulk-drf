@@ -243,6 +243,26 @@ class BulkOperationsMixin:
 
     @action(detail=False, methods=["patch"], url_path="bulk")
     @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="unique_fields",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of unique field names for upsert mode (e.g., 'financial_account,datetime')",
+                examples=[
+                    OpenApiExample(
+                        "Single field",
+                        value="financial_account",
+                        description="Single unique field"
+                    ),
+                    OpenApiExample(
+                        "Multiple fields",
+                        value="financial_account,datetime",
+                        description="Multiple unique fields"
+                    )
+                ]
+            )
+        ],
         request={
             "application/json": {
                 "oneOf": [
@@ -359,6 +379,26 @@ class BulkOperationsMixin:
 
     @action(detail=False, methods=["put"], url_path="bulk")
     @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="unique_fields",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of unique field names for upsert mode (e.g., 'financial_account,datetime')",
+                examples=[
+                    OpenApiExample(
+                        "Single field",
+                        value="financial_account",
+                        description="Single unique field"
+                    ),
+                    OpenApiExample(
+                        "Multiple fields",
+                        value="financial_account,datetime",
+                        description="Multiple unique fields"
+                    )
+                ]
+            )
+        ],
         request={
             "application/json": {
                 "oneOf": [

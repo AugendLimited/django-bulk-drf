@@ -345,8 +345,46 @@ curl -X DELETE http://localhost:8000/api/financial-transactions/bulk/ \\
   -d '[1, 2, 3, 4, 5]'
 ```
 
-#### Bulk Upsert (Insert or Update)
+#### Bulk Upsert (Insert or Update) - Salesforce Style
 ```bash
+# Salesforce-style: unique_fields in query params, simple array payload
+curl -X PATCH "http://localhost:8000/api/financial-transactions/bulk/?unique_fields=financial_account,datetime" \
+  -H "Content-Type: application/json" \
+  -d '[
+    {
+      "amount": "100.50",
+      "description": "Upsert transaction 1",
+      "datetime": "2025-01-01T10:00:00Z",
+      "financial_account": 1,
+      "classification_status": 1
+    },
+    {
+      "amount": "200.75",
+      "description": "Upsert transaction 1 (updated)",
+      "datetime": "2025-01-01T10:00:00Z",
+      "financial_account": 1,
+      "classification_status": 2
+    }
+  ]'
+```
+
+#### Single Object Upsert (Salesforce Style)
+```bash
+# Single object upsert (not array)
+curl -X PATCH "http://localhost:8000/api/financial-transactions/bulk/?unique_fields=financial_account,datetime" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": "100.50",
+    "description": "Single upsert transaction",
+    "datetime": "2025-01-01T10:00:00Z",
+    "financial_account": 1,
+    "classification_status": 1
+  }'
+```
+
+#### Bulk Upsert (Legacy Style)
+```bash
+# Legacy style: structured body (backward compatibility)
 curl -X PATCH http://localhost:8000/api/financial-transactions/bulk/ \
   -H "Content-Type: application/json" \
   -d '{
@@ -357,17 +395,9 @@ curl -X PATCH http://localhost:8000/api/financial-transactions/bulk/ \
         "datetime": "2025-01-01T10:00:00Z",
         "financial_account": 1,
         "classification_status": 1
-      },
-      {
-        "amount": "200.75",
-        "description": "Upsert transaction 1 (updated)",
-        "datetime": "2025-01-01T10:00:00Z",
-        "financial_account": 1,
-        "classification_status": 2
       }
     ],
-    "unique_fields": ["financial_account", "datetime"],
-    "update_fields": ["amount", "description", "classification_status"]
+    "unique_fields": ["financial_account", "datetime"]
   }'
 ```
 
