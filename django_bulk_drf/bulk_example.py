@@ -155,6 +155,83 @@ class BulkOperationsExample:
             print(f"❌ Error: {response.status_code} - {response.text}")
             return {}
 
+    def bulk_upsert_financial_transactions(self, data: list[dict], unique_fields: list[str], update_fields: list[str] = None) -> str:
+        """
+        Upsert multiple financial transactions using PATCH bulk endpoint.
+        
+        Similar to Django's bulk_create with update_conflicts=True, this will create
+        new records or update existing ones based on unique field constraints.
+
+        Args:
+            data: List of transaction data dictionaries
+            unique_fields: List of field names that form the unique constraint
+            update_fields: Optional list of field names to update on conflict
+
+        Returns:
+            Task ID for tracking the operation
+        """
+        url = f"{self.base_url}/financial-transactions/bulk/"
+        
+        # Prepare the request payload
+        payload = {
+            "data": data,
+            "unique_fields": unique_fields,
+        }
+        if update_fields:
+            payload["update_fields"] = update_fields
+        
+        response = self.session.patch(url, json=payload)
+        
+        if response.status_code == 202:
+            result = response.json()
+            print(f"✅ Bulk upsert started: {result['message']}")
+            print(f"📋 Task ID: {result['task_id']}")
+            print(f"🔗 Status URL: {result['status_url']}")
+            print(f"🔑 Unique fields: {unique_fields}")
+            if update_fields:
+                print(f"📝 Update fields: {update_fields}")
+            return result["task_id"]
+        else:
+            print(f"❌ Error: {response.status_code} - {response.text}")
+            return ""
+
+    def bulk_upsert_csv_financial_transactions(self, csv_file_path: str, unique_fields: list[str], update_fields: list[str] = None) -> dict:
+        """
+        Upsert multiple financial transactions from CSV file using PATCH bulk endpoint.
+
+        Args:
+            csv_file_path: Path to the CSV file
+            unique_fields: List of field names that form the unique constraint
+            update_fields: Optional list of field names to update on conflict
+
+        Returns:
+            Response data with task information
+        """
+        url = f"{self.base_url}/financial-transactions/bulk/"
+        
+        with open(csv_file_path, 'rb') as csv_file:
+            files = {'file': csv_file}
+            data = {
+                'unique_fields': ','.join(unique_fields),
+            }
+            if update_fields:
+                data['update_fields'] = ','.join(update_fields)
+            
+            response = self.session.patch(url, files=files, data=data)
+        
+        if response.status_code == 202:
+            result = response.json()
+            print(f"✅ Bulk upsert from CSV started: {result['message']}")
+            print(f"📋 Task ID: {result['task_id']}")
+            print(f"📁 Source file: {result['source_file']}")
+            print(f"🔑 Unique fields: {result['unique_fields']}")
+            if result.get('update_fields'):
+                print(f"📝 Update fields: {result['update_fields']}")
+            return result
+        else:
+            print(f"❌ Error: {response.status_code} - {response.text}")
+            return {}
+
     def check_task_status(self, task_id: str) -> dict:
         """
         Check the status of a bulk operation task.
@@ -409,6 +486,121 @@ def run_example():
                 print(f"   • Created: {csv_task_result.get('success_count', 0)}")
                 print(f"   • Errors: {csv_task_result.get('error_count', 0)}")
                 print(f"   • Created IDs: {csv_task_result.get('created_ids', [])}")
+    
+    # Example 5: Bulk Upsert (similar to Django's bulk_create with update_conflicts=True)
+    print("\n🔄 Example 5: Bulk Upsert Financial Transactions")
+    
+    # Sample upsert data - this will create new records or update existing ones
+    # based on the unique constraint of financial_account + datetime
+    upsert_data = [
+        {
+            "amount": "100.50",
+            "description": "Upsert transaction 1",
+            "datetime": "2025-01-01T10:00:00Z",
+            "financial_account": 1,
+            "classification_status": 1,
+        },
+        {
+            "amount": "200.75",  # This will update the existing record if it exists
+            "description": "Upsert transaction 1 (updated)",
+            "datetime": "2025-01-01T10:00:00Z",  # Same datetime as above
+            "financial_account": 1,  # Same account as above
+            "classification_status": 2,  # Different status
+        },
+        {
+            "amount": "300.00",
+            "description": "Upsert transaction 2",
+            "datetime": "2025-01-01T11:00:00Z",
+            "financial_account": 1,
+            "classification_status": 1,
+        },
+    ]
+    
+    # Define unique fields that form the constraint
+    unique_fields = ["financial_account", "datetime"]
+    
+    # Define which fields to update on conflict (optional)
+    update_fields = ["amount", "description", "classification_status"]
+    
+    upsert_task_id = example.bulk_upsert_financial_transactions(
+        data=upsert_data,
+        unique_fields=unique_fields,
+        update_fields=update_fields
+    )
+    
+    if upsert_task_id:
+        # Wait for completion and get results
+        upsert_result = example.wait_for_completion(upsert_task_id)
+        
+        if upsert_result.get("state") == "SUCCESS":
+            upsert_task_result = upsert_result.get("result", {})
+            print(f"📊 Upsert Results:")
+            print(f"   • Created: {len(upsert_task_result.get('created_ids', []))}")
+            print(f"   • Updated: {len(upsert_task_result.get('updated_ids', []))}")
+            print(f"   • Errors: {upsert_task_result.get('error_count', 0)}")
+            print(f"   • Created IDs: {upsert_task_result.get('created_ids', [])}")
+            print(f"   • Updated IDs: {upsert_task_result.get('updated_ids', [])}")
+    
+    # Example 6: Bulk Upsert from CSV
+    print("\n📁 Example 6: Bulk Upsert Financial Transactions from CSV")
+    
+    # Create a sample CSV file for upsert
+    upsert_csv_filename = "sample_upsert_transactions.csv"
+    upsert_csv_data = [
+        {
+            "amount": "150.00",
+            "description": "CSV Upsert 1",
+            "datetime": "2025-01-01T12:00:00Z",
+            "financial_account": "2",
+            "classification_status": "1"
+        },
+        {
+            "amount": "250.00",  # This will update if the record exists
+            "description": "CSV Upsert 1 (updated)",
+            "datetime": "2025-01-01T12:00:00Z",  # Same datetime
+            "financial_account": "2",  # Same account
+            "classification_status": "2"
+        },
+        {
+            "amount": "350.00",
+            "description": "CSV Upsert 2",
+            "datetime": "2025-01-01T13:00:00Z",
+            "financial_account": "2",
+            "classification_status": "1"
+        }
+    ]
+    
+    try:
+        with open(upsert_csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+            fieldnames = upsert_csv_data[0].keys()
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(upsert_csv_data)
+        
+        print(f"✅ Created upsert CSV file: {upsert_csv_filename}")
+        
+        # Perform bulk upsert using the CSV file
+        csv_upsert_result = example.bulk_upsert_csv_financial_transactions(
+            csv_file_path=upsert_csv_filename,
+            unique_fields=["financial_account", "datetime"],
+            update_fields=["amount", "description", "classification_status"]
+        )
+        
+        if csv_upsert_result:
+            # Wait for completion and get results
+            csv_upsert_final_result = example.wait_for_completion(csv_upsert_result['task_id'])
+            
+            if csv_upsert_final_result.get("state") == "SUCCESS":
+                csv_upsert_task_result = csv_upsert_final_result.get("result", {})
+                print(f"📊 CSV Upsert Results:")
+                print(f"   • Created: {len(csv_upsert_task_result.get('created_ids', []))}")
+                print(f"   • Updated: {len(csv_upsert_task_result.get('updated_ids', []))}")
+                print(f"   • Errors: {csv_upsert_task_result.get('error_count', 0)}")
+                print(f"   • Created IDs: {csv_upsert_task_result.get('created_ids', [])}")
+                print(f"   • Updated IDs: {csv_upsert_task_result.get('updated_ids', [])}")
+                
+    except Exception as e:
+        print(f"❌ Error with CSV upsert example: {str(e)}")
     
     print("\n🎉 Bulk Operations Example Completed!")
 

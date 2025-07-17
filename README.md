@@ -113,39 +113,54 @@ This means you can use the same `/bulk` endpoint for both JSON and CSV operation
 - **Input**: Array of IDs to delete
 - **Output**: Task ID and status URL
 
+### 6. Bulk Upsert (Insert or Update)
+- **Endpoint**: `PATCH /api/{model}/bulk/` or `PUT /api/{model}/bulk/`
+- **Method**: PATCH or PUT
+- **Input**: Object with `data` array, `unique_fields`, and optional `update_fields`
+- **Output**: Task ID and status URL
+- **Description**: Similar to Django's `bulk_create` with `update_conflicts=True`. Integrated into existing PATCH/PUT endpoints.
+
 ### CSV-based Operations (Salesforce-style)
 
 All CSV operations use the same `/bulk` endpoint with `Content-Type: multipart/form-data`:
 
-### 6. CSV Bulk Create
+### 7. CSV Bulk Create
 - **Endpoint**: `POST /api/{model}/bulk/`
 - **Method**: POST
 - **Content-Type**: `multipart/form-data`
 - **Input**: CSV file upload with headers matching model fields
 - **Output**: Task ID and status URL
 
-### 7. CSV Bulk Update (Partial)
+### 8. CSV Bulk Update (Partial)
 - **Endpoint**: `PATCH /api/{model}/bulk/`
 - **Method**: PATCH
 - **Content-Type**: `multipart/form-data`
 - **Input**: CSV file with `id` column and fields to update
 - **Output**: Task ID and status URL
 
-### 8. CSV Bulk Replace (Full Update)
+### 9. CSV Bulk Replace (Full Update)
 - **Endpoint**: `PUT /api/{model}/bulk/`
 - **Method**: PUT
 - **Content-Type**: `multipart/form-data`
 - **Input**: CSV file with `id` column and all required fields
 - **Output**: Task ID and status URL
 
-### 9. CSV Bulk Delete
+### 10. CSV Bulk Delete
 - **Endpoint**: `DELETE /api/{model}/bulk/`
 - **Method**: DELETE
 - **Content-Type**: `multipart/form-data`
 - **Input**: CSV file with `id` column containing IDs to delete
 - **Output**: Task ID and status URL
 
-### 10. Status Tracking
+### 11. CSV Bulk Upsert
+- **Endpoint**: `PATCH /api/{model}/bulk/` or `PUT /api/{model}/bulk/`
+- **Method**: PATCH or PUT
+- **Content-Type**: `multipart/form-data`
+- **Input**: CSV file with headers matching model fields + form fields for `unique_fields` and optional `update_fields`
+- **Output**: Task ID and status URL
+- **Description**: Similar to Django's `bulk_create` with `update_conflicts=True`. Integrated into existing PATCH/PUT endpoints.
+
+### 12. Status Tracking
 - **Endpoint**: `GET /api/bulk-operations/{task_id}/status/`
 - **Output**: Task status, progress, and results
 
@@ -156,6 +171,7 @@ All CSV operations use the same `/bulk` endpoint with `Content-Type: multipart/f
 - **PATCH**: Partial updates - only include fields you want to change (requires `id`)
 - **PUT**: Full replacement - all required fields must be provided (requires `id`) 
 - **DELETE**: Removes records (provide array of IDs)
+- **PATCH/PUT /bulk/**: Partial/full updates or upsert records based on unique constraints (when `data`, `unique_fields` provided)
 
 ## Usage
 
@@ -327,6 +343,42 @@ curl -X PUT http://localhost:8000/api/financial-transactions/bulk/ \\
 curl -X DELETE http://localhost:8000/api/financial-transactions/bulk/ \\
   -H "Content-Type: application/json" \\
   -d '[1, 2, 3, 4, 5]'
+```
+
+#### Bulk Upsert (Insert or Update)
+```bash
+curl -X PATCH http://localhost:8000/api/financial-transactions/bulk/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data": [
+      {
+        "amount": "100.50",
+        "description": "Upsert transaction 1",
+        "datetime": "2025-01-01T10:00:00Z",
+        "financial_account": 1,
+        "classification_status": 1
+      },
+      {
+        "amount": "200.75",
+        "description": "Upsert transaction 1 (updated)",
+        "datetime": "2025-01-01T10:00:00Z",
+        "financial_account": 1,
+        "classification_status": 2
+      }
+    ],
+    "unique_fields": ["financial_account", "datetime"],
+    "update_fields": ["amount", "description", "classification_status"]
+  }'
+```
+
+**Response:**
+```json
+{
+  "message": "Bulk upsert task started for 2 items",
+  "task_id": "abc123-def456-ghi789",
+  "total_items": 2,
+  "status_url": "/api/bulk-operations/abc123-def456-ghi789/status/"
+}
 ```
 
 #### Check Status

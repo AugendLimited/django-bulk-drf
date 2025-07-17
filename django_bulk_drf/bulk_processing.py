@@ -409,6 +409,160 @@ def bulk_replace_task(self, serializer_class_path: str, replacements_list: list[
     return result.to_dict()
 
 
+@shared_task(bind=True)
+def bulk_upsert_task(
+    self, 
+    serializer_class_path: str, 
+    data_list: list[dict], 
+    unique_fields: list[str],
+    update_fields: list[str] | None = None,
+    user_id: int | None = None
+):
+    """
+    Celery task for bulk upsert (insert or update) of model instances.
+    
+    Similar to Django's bulk_create with update_conflicts=True, this function
+    will create new records or update existing ones based on unique field constraints.
+
+    Args:
+        serializer_class_path: Full path to the serializer class
+        data_list: List of dictionaries containing data for each instance
+        unique_fields: List of field names that form the unique constraint
+        update_fields: List of field names to update on conflict (if None, updates all fields)
+        user_id: Optional user ID for audit purposes
+    """
+    task_id = self.request.id
+    result = BulkOperationResult(task_id, len(data_list), "bulk_upsert")
+
+    # Initialize progress tracking in Redis
+    BulkOperationCache.set_task_progress(task_id, 0, len(data_list), "Starting bulk upsert...")
+
+    try:
+        serializer_class = import_string(serializer_class_path)
+        model_class = serializer_class.Meta.model
+        instances_to_create = []
+        instances_to_update = []
+
+        # Validate all items first
+        BulkOperationCache.set_task_progress(task_id, 0, len(data_list), "Validating data...")
+        
+        for index, item_data in enumerate(data_list):
+            try:
+                serializer = serializer_class(data=item_data)
+                if serializer.is_valid():
+                    validated_data = serializer.validated_data
+                    
+                    # Check if record exists based on unique fields
+                    unique_filter = {}
+                    for field in unique_fields:
+                        if field in validated_data:
+                            unique_filter[field] = validated_data[field]
+                        else:
+                            result.add_error(index, f"Missing required unique field: {field}", item_data)
+                            continue
+                    
+                    if unique_filter:
+                        # Try to find existing instance
+                        existing_instance = model_class.objects.filter(**unique_filter).first()
+                        
+                        if existing_instance:
+                            # Update existing instance
+                            if update_fields:
+                                # Only update specified fields
+                                update_data = {k: v for k, v in validated_data.items() 
+                                             if k in update_fields}
+                            else:
+                                # Update all fields except unique fields
+                                update_data = {k: v for k, v in validated_data.items() 
+                                             if k not in unique_fields}
+                            
+                            # Update the instance
+                            for field, value in update_data.items():
+                                setattr(existing_instance, field, value)
+                            
+                            instances_to_update.append((index, existing_instance, existing_instance.id))
+                        else:
+                            # Create new instance
+                            instance = model_class(**validated_data)
+                            instances_to_create.append((index, instance))
+                    else:
+                        result.add_error(index, "No valid unique fields found", item_data)
+                else:
+                    result.add_error(index, str(serializer.errors), item_data)
+            except (ValidationError, ValueError) as e:
+                result.add_error(index, str(e), item_data)
+            
+            # Update progress every 10 items or at the end
+            if (index + 1) % 10 == 0 or index == len(data_list) - 1:
+                BulkOperationCache.set_task_progress(
+                    task_id, index + 1, len(data_list), f"Validated {index + 1}/{len(data_list)} items",
+                )
+
+        # Bulk create new instances
+        if instances_to_create:
+            BulkOperationCache.set_task_progress(
+                task_id, len(data_list), len(data_list), "Creating new instances...",
+            )
+            
+            with transaction.atomic():
+                new_instances = [instance for _, instance in instances_to_create]
+                created_instances = model_class.objects.bulk_create(new_instances)
+
+                for instance in created_instances:
+                    result.add_success(instance.id, "created")
+
+        # Bulk update existing instances
+        if instances_to_update:
+            BulkOperationCache.set_task_progress(
+                task_id, len(data_list), len(data_list), "Updating existing instances...",
+            )
+            
+            with transaction.atomic():
+                update_instances = [instance for _, instance, _ in instances_to_update]
+                
+                # Determine fields to update
+                if update_fields:
+                    fields_to_update = [field for field in update_fields 
+                                      if any(hasattr(instance, field) for instance in update_instances)]
+                else:
+                    # Get all non-unique fields from the first instance
+                    if update_instances:
+                        first_instance = update_instances[0]
+                        fields_to_update = [field.name for field in first_instance._meta.fields 
+                                          if field.name not in unique_fields and not field.primary_key]
+                    else:
+                        fields_to_update = []
+                
+                if fields_to_update:
+                    updated_count = model_class.objects.bulk_update(
+                        update_instances, 
+                        fields_to_update,
+                        batch_size=1000
+                    )
+                    
+                    # Mark successful updates
+                    for _, instance, instance_id in instances_to_update:
+                        result.add_success(instance_id, "updated")
+
+        # Store final result in cache
+        BulkOperationCache.set_task_result(task_id, result.to_dict())
+
+        logger.info(
+            "Bulk upsert task %s completed: %s created, %s updated, %s errors",
+            task_id,
+            len([op for op in result.created_ids]),
+            len([op for op in result.updated_ids]),
+            result.error_count,
+        )
+
+    except (ImportError, AttributeError) as e:
+        logger.exception("Bulk upsert task %s failed", task_id)
+        result.add_error(0, f"Task failed: {e!s}")
+        BulkOperationCache.set_task_result(task_id, result.to_dict())
+
+    return result.to_dict()
+
+
 def optimize_queryset_for_serializer(queryset, serializer_class):
     """
     Automatically optimize queryset with select_related and prefetch_related

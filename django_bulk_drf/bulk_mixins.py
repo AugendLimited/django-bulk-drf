@@ -13,6 +13,24 @@ try:
     SPECTACULAR_AVAILABLE = True
 except ImportError:
     SPECTACULAR_AVAILABLE = False
+    # Create dummy decorator if drf-spectacular is not available
+    def extend_schema(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    
+    # Create dummy classes for OpenAPI types
+    class OpenApiParameter:
+        QUERY = "query"
+        def __init__(self, name, type, location, description, examples=None):
+            pass
+    
+    class OpenApiExample:
+        def __init__(self, name, value, description=None):
+            pass
+    
+    class OpenApiTypes:
+        STR = "string"
 
 from django_bulk_drf.bulk_processing import (
     bulk_create_task,
@@ -20,6 +38,7 @@ from django_bulk_drf.bulk_processing import (
     bulk_get_task,
     bulk_replace_task,
     bulk_update_task,
+    bulk_upsert_task,
 )
 
 
@@ -141,7 +160,7 @@ class BulkOperationsMixin:
         },
         description="Retrieve multiple instances by IDs or query parameters. Supports ID-based retrieval via ?ids=1,2,3 or complex filters in request body. Returns serialized data directly for small results (≤100), or task ID for large results (>100).",
         summary="Bulk retrieve instances"
-    ) if SPECTACULAR_AVAILABLE else None
+    )
     def bulk_get(self, request):
         """
         Retrieve multiple instances by IDs or query parameters.
@@ -209,7 +228,7 @@ class BulkOperationsMixin:
         },
         description="Create multiple instances asynchronously. Supports JSON array or CSV file upload.",
         summary="Bulk create instances"
-    ) if SPECTACULAR_AVAILABLE else None
+    )
     def bulk_create(self, request):
         """
         Create multiple instances asynchronously.
@@ -226,16 +245,53 @@ class BulkOperationsMixin:
     @extend_schema(
         request={
             "application/json": {
-                "type": "array",
-                "description": "Array of objects with 'id' and fields to update",
-                "examples": [
-                    OpenApiExample(
-                        "JSON Update",
-                        value=[
-                            {"id": 1, "name": "Updated Business 1", "status": "inactive"},
-                            {"id": 2, "status": "active"}
+                "oneOf": [
+                    {
+                        "type": "array",
+                        "description": "Array of objects with 'id' and fields to update",
+                        "examples": [
+                            OpenApiExample(
+                                "JSON Update",
+                                value=[
+                                    {"id": 1, "name": "Updated Business 1", "status": "inactive"},
+                                    {"id": 2, "status": "active"}
+                                ]
+                            )
                         ]
-                    )
+                    },
+                    {
+                        "type": "object",
+                        "description": "Upsert mode - object with data, unique_fields, and optional update_fields",
+                        "properties": {
+                            "data": {
+                                "type": "array",
+                                "description": "Array of objects to upsert"
+                            },
+                            "unique_fields": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of field names that form the unique constraint"
+                            },
+                            "update_fields": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of field names to update on conflict (optional, auto-inferred if not provided)"
+                            }
+                        },
+                        "examples": [
+                            OpenApiExample(
+                                "JSON Upsert",
+                                value={
+                                    "data": [
+                                        {"financial_account": 1, "year": 2024, "month": 1, "revenue": 1000},
+                                        {"financial_account": 1, "year": 2024, "month": 2, "revenue": 1500}
+                                    ],
+                                    "unique_fields": ["financial_account", "year", "month"],
+                                    "update_fields": ["revenue"]
+                                }
+                            )
+                        ]
+                    }
                 ]
             },
             "multipart/form-data": {
@@ -245,6 +301,14 @@ class BulkOperationsMixin:
                         "type": "string",
                         "format": "binary",
                         "description": "CSV file with 'id' column and fields to update"
+                    },
+                    "unique_fields": {
+                        "type": "string",
+                        "description": "Comma-separated list of unique field names (for upsert mode)"
+                    },
+                    "update_fields": {
+                        "type": "string",
+                        "description": "Comma-separated list of fields to update on conflict (optional, for upsert mode)"
                     }
                 }
             }
@@ -278,9 +342,9 @@ class BulkOperationsMixin:
                 ]
             }
         },
-        description="Update multiple instances asynchronously (partial updates). Requires 'id' field for each object.",
+        description="Update multiple instances asynchronously (partial updates). Requires 'id' field for each object. Also supports upsert mode when providing 'data', 'unique_fields', and optional 'update_fields'.",
         summary="Bulk update instances"
-    ) if SPECTACULAR_AVAILABLE else None
+    )
     def bulk_update(self, request):
         """
         Update multiple instances asynchronously (partial updates).
@@ -297,16 +361,53 @@ class BulkOperationsMixin:
     @extend_schema(
         request={
             "application/json": {
-                "type": "array",
-                "description": "Array of complete objects with 'id' and all required fields",
-                "examples": [
-                    OpenApiExample(
-                        "JSON Replace",
-                        value=[
-                            {"id": 1, "name": "Replaced Business 1", "status": "active", "category": 1},
-                            {"id": 2, "name": "Replaced Business 2", "status": "inactive", "category": 2}
+                "oneOf": [
+                    {
+                        "type": "array",
+                        "description": "Array of complete objects with 'id' and all required fields",
+                        "examples": [
+                            OpenApiExample(
+                                "JSON Replace",
+                                value=[
+                                    {"id": 1, "name": "Replaced Business 1", "status": "active", "category": 1},
+                                    {"id": 2, "name": "Replaced Business 2", "status": "inactive", "category": 2}
+                                ]
+                            )
                         ]
-                    )
+                    },
+                    {
+                        "type": "object",
+                        "description": "Upsert mode - object with data, unique_fields, and optional update_fields",
+                        "properties": {
+                            "data": {
+                                "type": "array",
+                                "description": "Array of objects to upsert"
+                            },
+                            "unique_fields": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of field names that form the unique constraint"
+                            },
+                            "update_fields": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of field names to update on conflict (optional)"
+                            }
+                        },
+                        "examples": [
+                            OpenApiExample(
+                                "JSON Upsert",
+                                value={
+                                    "data": [
+                                        {"financial_account": 1, "year": 2024, "month": 1, "revenue": 1000},
+                                        {"financial_account": 1, "year": 2024, "month": 2, "revenue": 1500}
+                                    ],
+                                    "unique_fields": ["financial_account", "year", "month"],
+                                    "update_fields": ["revenue"]
+                                }
+                            )
+                        ]
+                    }
                 ]
             },
             "multipart/form-data": {
@@ -316,6 +417,14 @@ class BulkOperationsMixin:
                         "type": "string",
                         "format": "binary",
                         "description": "CSV file with 'id' column and all required fields"
+                    },
+                    "unique_fields": {
+                        "type": "string",
+                        "description": "Comma-separated list of unique field names (for upsert mode)"
+                    },
+                    "update_fields": {
+                        "type": "string",
+                        "description": "Comma-separated list of fields to update on conflict (optional, for upsert mode)"
                     }
                 }
             }
@@ -349,9 +458,9 @@ class BulkOperationsMixin:
                 ]
             }
         },
-        description="Replace multiple instances asynchronously (full updates). Requires 'id' field and all required fields for each object.",
+        description="Replace multiple instances asynchronously (full updates). Requires 'id' field and all required fields for each object. Also supports upsert mode when providing 'data', 'unique_fields', and optional 'update_fields'.",
         summary="Bulk replace instances"
-    ) if SPECTACULAR_AVAILABLE else None
+    )
     def bulk_replace(self, request):
         """
         Replace multiple instances asynchronously (full updates).
@@ -420,7 +529,7 @@ class BulkOperationsMixin:
         },
         description="Delete multiple instances asynchronously. Provide array of IDs or CSV file with 'id' column.",
         summary="Bulk delete instances"
-    ) if SPECTACULAR_AVAILABLE else None
+    )
     def bulk_delete(self, request):
         """
         Delete multiple instances asynchronously.
@@ -433,13 +542,15 @@ class BulkOperationsMixin:
         """
         return self._handle_bulk_request(request, "delete")
 
+
+
     def _handle_bulk_request(self, request, operation: str):
         """
         Route bulk requests based on Content-Type header.
 
         Args:
             request: The HTTP request
-            operation: The operation type (create, update, replace, delete)
+            operation: The operation type (create, update, replace, delete, upsert)
 
         Returns:
             Response based on content type (JSON or CSV file upload)
@@ -517,10 +628,34 @@ class BulkOperationsMixin:
         """
         Update multiple instances asynchronously.
 
-        Expects a JSON array of objects with 'id' and update data.
-        Returns a task ID for tracking the bulk operation.
+        Supports:
+        1. Standard update: array of objects with 'id' and update data
+        2. Upsert: if ?unique_fields=... is present, treat payload as upsert data (list or single object)
+        3. Upsert: if body has 'data' and 'unique_fields' keys (legacy)
         """
-        updates_list = request.data
+        # Salesforce-style: unique_fields in query params
+        unique_fields_param = request.query_params.get("unique_fields")
+        if unique_fields_param:
+            unique_fields = [f.strip() for f in unique_fields_param.split(",") if f.strip()]
+            # Accept both list and single-object payloads
+            data = request.data
+            if isinstance(data, dict):
+                data_list = [data]
+            elif isinstance(data, list):
+                data_list = data
+            else:
+                return Response({"error": "Payload must be an object or array of objects for upsert."}, status=status.HTTP_400_BAD_REQUEST)
+            # Auto-infer update_fields
+            update_fields = self._infer_update_fields(data_list, unique_fields)
+            return self._bulk_upsert_from_parts(data_list, unique_fields, update_fields, request)
+        
+        # Legacy upsert: body has 'data' and 'unique_fields'
+        request_data = request.data
+        if isinstance(request_data, dict) and "data" in request_data and "unique_fields" in request_data:
+            return self._bulk_upsert(request)
+        
+        # Standard update mode
+        updates_list = request_data
         if not isinstance(updates_list, list):
             return Response(
                 {"error": "Expected a list (array) of objects."},
@@ -565,10 +700,34 @@ class BulkOperationsMixin:
         """
         Replace multiple instances asynchronously (full updates).
 
-        Expects a JSON array of complete objects with 'id' and all required fields.
-        Returns a task ID for tracking the bulk operation.
+        Supports:
+        1. Standard replace: array of complete objects with 'id' and all required fields
+        2. Upsert: if ?unique_fields=... is present, treat payload as upsert data (list or single object)
+        3. Upsert: if body has 'data' and 'unique_fields' keys (legacy)
         """
-        replacements_list = request.data
+        # Salesforce-style: unique_fields in query params
+        unique_fields_param = request.query_params.get("unique_fields")
+        if unique_fields_param:
+            unique_fields = [f.strip() for f in unique_fields_param.split(",") if f.strip()]
+            # Accept both list and single-object payloads
+            data = request.data
+            if isinstance(data, dict):
+                data_list = [data]
+            elif isinstance(data, list):
+                data_list = data
+            else:
+                return Response({"error": "Payload must be an object or array of objects for upsert."}, status=status.HTTP_400_BAD_REQUEST)
+            # Auto-infer update_fields
+            update_fields = self._infer_update_fields(data_list, unique_fields)
+            return self._bulk_upsert_from_parts(data_list, unique_fields, update_fields, request)
+        
+        # Legacy upsert: body has 'data' and 'unique_fields'
+        request_data = request.data
+        if isinstance(request_data, dict) and "data" in request_data and "unique_fields" in request_data:
+            return self._bulk_upsert(request)
+        
+        # Standard replace mode
+        replacements_list = request_data
         if not isinstance(replacements_list, list):
             return Response(
                 {"error": "Expected a list (array) of objects."},
@@ -656,6 +815,150 @@ class BulkOperationsMixin:
             },
             status=status.HTTP_202_ACCEPTED,
         )
+
+    def _bulk_upsert(self, request):
+        """
+        Upsert multiple instances asynchronously.
+        
+        Similar to Django's bulk_create with update_conflicts=True, this method
+        will create new records or update existing ones based on unique field constraints.
+        
+        Expects a JSON object with:
+        - data: Array of objects to upsert
+        - unique_fields: List of field names that form the unique constraint
+        - update_fields: Optional list of field names to update on conflict (auto-inferred if not provided)
+        
+        Returns a task ID for tracking the bulk operation.
+        """
+        # Handle both JSON and form data formats
+        if request.content_type and request.content_type.startswith("multipart/form-data"):
+            # Handle CSV file upload
+            return self._bulk_csv(request, "upsert")
+        
+        # Handle JSON data
+        request_data = request.data
+        
+        # Validate request structure
+        if not isinstance(request_data, dict):
+            return Response(
+                {"error": "Expected an object with 'data', 'unique_fields', and optional 'update_fields'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        data_list = request_data.get("data")
+        unique_fields = request_data.get("unique_fields")
+        update_fields = request_data.get("update_fields")
+        
+        # Validate required fields
+        if not isinstance(data_list, list):
+            return Response(
+                {"error": "Expected 'data' to be a list (array) of objects."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        if not data_list:
+            return Response(
+                {"error": "Empty data list provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        if not unique_fields or not isinstance(unique_fields, list):
+            return Response(
+                {"error": "unique_fields parameter is required and must be a list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Validate that all items are dictionaries
+        for i, item in enumerate(data_list):
+            if not isinstance(item, dict):
+                return Response(
+                    {"error": f"Item at index {i} is not a valid object"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        
+        # Auto-infer update_fields if not provided
+        if not update_fields:
+            update_fields = self._infer_update_fields(data_list, unique_fields)
+        
+        # Get the serializer class path
+        serializer_class = self.get_serializer_class()
+        serializer_class_path = (
+            f"{serializer_class.__module__}.{serializer_class.__name__}"
+        )
+
+        # Start the bulk upsert task
+        user_id = request.user.id if request.user.is_authenticated else None
+        task = bulk_upsert_task.delay(
+            serializer_class_path, 
+            data_list, 
+            unique_fields, 
+            update_fields, 
+            user_id
+        )
+
+        return Response(
+            {
+                "message": f"Bulk upsert task started for {len(data_list)} items",
+                "task_id": task.id,
+                "total_items": len(data_list),
+                "status_url": f"/api/bulk-operations/{task.id}/status/",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _bulk_upsert_from_parts(self, data_list, unique_fields, update_fields, request):
+        """
+        Helper for Salesforce-style upsert: directly call the upsert task with explicit params.
+        """
+        serializer_class = self.get_serializer_class()
+        serializer_class_path = (
+            f"{serializer_class.__module__}.{serializer_class.__name__}"
+        )
+        user_id = request.user.id if request.user.is_authenticated else None
+        task = bulk_upsert_task.delay(
+            serializer_class_path,
+            data_list,
+            unique_fields,
+            update_fields,
+            user_id
+        )
+        return Response(
+            {
+                "message": f"Bulk upsert task started for {len(data_list)} items",
+                "task_id": task.id,
+                "total_items": len(data_list),
+                "status_url": f"/api/bulk-operations/{task.id}/status/",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _infer_update_fields(self, data_list: list[dict], unique_fields: list[str]) -> list[str]:
+        """
+        Automatically infer which fields should be updated based on the data payload.
+        
+        Args:
+            data_list: List of data objects
+            unique_fields: List of unique constraint fields
+            
+        Returns:
+            List of field names that should be updated (all fields except unique_fields)
+        """
+        if not data_list:
+            return []
+        
+        # Get all unique field names from the data
+        all_fields = set()
+        for item in data_list:
+            if isinstance(item, dict):
+                all_fields.update(item.keys())
+        
+        # Remove unique fields and return the rest as update fields
+        update_fields = list(all_fields - set(unique_fields))
+        
+        # Sort for consistent ordering
+        update_fields.sort()
+        
+        return update_fields
 
     def _bulk_get(self, request):
         """
@@ -901,6 +1204,12 @@ class BulkOperationsMixin:
 
     def _process_csv_update(self, request, data_list, filename):
         """Process CSV data for update operations."""
+        # Check if this is an upsert request (has unique_fields parameter)
+        unique_fields_str = request.POST.get("unique_fields")
+        if unique_fields_str:
+            return self._process_csv_upsert(request, data_list, filename)
+        
+        # Standard update mode
         # Get the serializer class path
         serializer_class = self.get_serializer_class()
         serializer_class_path = (
@@ -924,6 +1233,12 @@ class BulkOperationsMixin:
 
     def _process_csv_replace(self, request, data_list, filename):
         """Process CSV data for replace operations."""
+        # Check if this is an upsert request (has unique_fields parameter)
+        unique_fields_str = request.POST.get("unique_fields")
+        if unique_fields_str:
+            return self._process_csv_upsert(request, data_list, filename)
+        
+        # Standard replace mode
         # Get the serializer class path
         serializer_class = self.get_serializer_class()
         serializer_class_path = (
@@ -973,6 +1288,66 @@ class BulkOperationsMixin:
                 "task_id": task.id,
                 "total_items": len(ids_list),
                 "source_file": filename,
+                "status_url": f"/api/bulk-operations/{task.id}/status/",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _process_csv_upsert(self, request, data_list, filename):
+        """Process CSV data for upsert operations."""
+        # Get unique_fields and update_fields from form data
+        unique_fields_str = request.POST.get("unique_fields")
+        update_fields_str = request.POST.get("update_fields")
+        
+        if not unique_fields_str:
+            return Response(
+                {"error": "unique_fields parameter is required for CSV upsert operations"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Parse comma-separated fields
+        unique_fields = [field.strip() for field in unique_fields_str.split(",") if field.strip()]
+        update_fields = None
+        if update_fields_str:
+            update_fields = [field.strip() for field in update_fields_str.split(",") if field.strip()]
+        
+        # Validate that all required unique fields are present in CSV headers
+        csv_headers = set(data_list[0].keys()) if data_list else set()
+        missing_fields = [field for field in unique_fields if field not in csv_headers]
+        if missing_fields:
+            return Response(
+                {"error": f"Missing required unique fields in CSV: {missing_fields}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Auto-infer update_fields if not provided
+        if not update_fields:
+            update_fields = self._infer_update_fields(data_list, unique_fields)
+        
+        # Get the serializer class path
+        serializer_class = self.get_serializer_class()
+        serializer_class_path = (
+            f"{serializer_class.__module__}.{serializer_class.__name__}"
+        )
+
+        # Start the bulk upsert task
+        user_id = request.user.id if request.user.is_authenticated else None
+        task = bulk_upsert_task.delay(
+            serializer_class_path, 
+            data_list, 
+            unique_fields, 
+            update_fields, 
+            user_id
+        )
+
+        return Response(
+            {
+                "message": f"Bulk upsert task started from CSV '{filename}' with {len(data_list)} rows",
+                "task_id": task.id,
+                "total_items": len(data_list),
+                "source_file": filename,
+                "unique_fields": unique_fields,
+                "update_fields": update_fields,
                 "status_url": f"/api/bulk-operations/{task.id}/status/",
             },
             status=status.HTTP_202_ACCEPTED,
@@ -1048,3 +1423,6 @@ class BulkGetMixin:
         Returns serialized data or task ID for tracking the bulk operation.
         """
         return BulkOperationsMixin._bulk_get(self, request)
+
+
+
