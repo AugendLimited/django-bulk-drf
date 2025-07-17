@@ -171,7 +171,7 @@ class FinancialTransactionViewSet(BulkOperationsMixin, viewsets.ModelViewSet):
 
 ### OpenAPI/Swagger Documentation
 
-The bulk operations include proper OpenAPI schema definitions for Swagger documentation. To enable this:
+The bulk operations now include comprehensive OpenAPI schema definitions for Swagger documentation. To enable this:
 
 1. **Install drf-spectacular** (optional dependency):
 ```bash
@@ -211,10 +211,13 @@ urlpatterns = [
 ```
 
 The bulk endpoints will now show proper OpenAPI documentation with:
+- ✅ **Query parameters** for bulk GET operations (e.g., `?ids=1,2,3`)
+- ✅ **Request body schemas** for complex queries and bulk operations
 - ✅ **Array payloads** correctly specified for all bulk operations
 - ✅ **Request/response examples** for each operation type
 - ✅ **Proper schema references** for your model fields
 - ✅ **CSV upload support** documented for file operations
+- ✅ **Multiple content types** (JSON and CSV) properly documented
 
 **Note**: If `drf-spectacular` is not installed, the mixins will work normally but without enhanced OpenAPI documentation.
 

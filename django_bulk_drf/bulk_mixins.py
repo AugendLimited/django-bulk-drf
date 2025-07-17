@@ -6,6 +6,14 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+# Optional OpenAPI schema support
+try:
+    from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+    from drf_spectacular.types import OpenApiTypes
+    SPECTACULAR_AVAILABLE = True
+except ImportError:
+    SPECTACULAR_AVAILABLE = False
+
 from django_bulk_drf.bulk_processing import (
     bulk_create_task,
     bulk_delete_task,
@@ -25,6 +33,115 @@ class BulkOperationsMixin:
         return super().get_serializer(*args, **kwargs)
 
     @action(detail=False, methods=["get"], url_path="bulk")
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="ids",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of IDs to retrieve (e.g., '1,2,3,4,5')",
+                examples=[
+                    OpenApiExample(
+                        "Small set",
+                        value="1,2,3,4,5",
+                        description="Returns data directly for ≤100 IDs"
+                    ),
+                    OpenApiExample(
+                        "Large set", 
+                        value="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150",
+                        description="Returns task ID for async processing for >100 IDs"
+                    )
+                ]
+            )
+        ],
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "filters": {
+                        "type": "object",
+                        "description": "Complex query filters using Django ORM lookups",
+                        "examples": [
+                            OpenApiExample(
+                                "Simple filters",
+                                value={
+                                    "filters": {
+                                        "name": {"icontains": "tech"},
+                                        "status": "active",
+                                        "created_at": {"gte": "2024-01-01"}
+                                    }
+                                }
+                            ),
+                            OpenApiExample(
+                                "Complex filters",
+                                value={
+                                    "filters": {
+                                        "amount": {"gte": 100, "lte": 1000},
+                                        "category": {"in": [1, 2, 3]},
+                                        "description": {"icontains": "payment"},
+                                        "is_active": True
+                                    }
+                                }
+                            )
+                        ]
+                    }
+                }
+            }
+        },
+        responses={
+            200: {
+                "description": "Direct response for small result sets (≤100 records)",
+                "examples": [
+                    OpenApiExample(
+                        "Success Response",
+                        value={
+                            "count": 3,
+                            "results": [
+                                {"id": 1, "name": "Business 1", "status": "active"},
+                                {"id": 2, "name": "Business 2", "status": "active"},
+                                {"id": 3, "name": "Business 3", "status": "inactive"}
+                            ],
+                            "is_async": False
+                        }
+                    )
+                ]
+            },
+            202: {
+                "description": "Async response for large result sets (>100 records)",
+                "examples": [
+                    OpenApiExample(
+                        "Async Response",
+                        value={
+                            "message": "Bulk get task started for 250 IDs",
+                            "task_id": "abc123-def456-ghi789",
+                            "total_items": 250,
+                            "status_url": "/api/bulk-operations/abc123-def456-ghi789/status/",
+                            "is_async": True
+                        }
+                    )
+                ]
+            },
+            400: {
+                "description": "Bad request - invalid parameters",
+                "examples": [
+                    OpenApiExample(
+                        "Invalid ID Format",
+                        value={"error": "Invalid ID format. Use comma-separated integers."}
+                    ),
+                    OpenApiExample(
+                        "Missing Parameters",
+                        value={"error": "Provide either 'ids' query parameter or query filters in request body"}
+                    ),
+                    OpenApiExample(
+                        "Invalid Query Structure",
+                        value={"error": "Query data must be an object with filter parameters"}
+                    )
+                ]
+            }
+        },
+        description="Retrieve multiple instances by IDs or query parameters. Supports ID-based retrieval via ?ids=1,2,3 or complex filters in request body. Returns serialized data directly for small results (≤100), or task ID for large results (>100).",
+        summary="Bulk retrieve instances"
+    ) if SPECTACULAR_AVAILABLE else None
     def bulk_get(self, request):
         """
         Retrieve multiple instances by IDs or query parameters.
@@ -35,6 +152,64 @@ class BulkOperationsMixin:
         return self._bulk_get(request)
 
     @action(detail=False, methods=["post"], url_path="bulk")
+    @extend_schema(
+        request={
+            "application/json": {
+                "type": "array",
+                "description": "Array of objects to create",
+                "examples": [
+                    OpenApiExample(
+                        "JSON Create",
+                        value=[
+                            {"name": "Business 1", "status": "active", "category": 1},
+                            {"name": "Business 2", "status": "active", "category": 2}
+                        ]
+                    )
+                ]
+            },
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "CSV file with headers matching model fields"
+                    }
+                }
+            }
+        },
+        responses={
+            202: {
+                "description": "Bulk create task started",
+                "examples": [
+                    OpenApiExample(
+                        "Task Started",
+                        value={
+                            "message": "Bulk create task started for 2 items",
+                            "task_id": "abc123-def456-ghi789",
+                            "total_items": 2,
+                            "status_url": "/api/bulk-operations/abc123-def456-ghi789/status/"
+                        }
+                    )
+                ]
+            },
+            400: {
+                "description": "Bad request",
+                "examples": [
+                    OpenApiExample(
+                        "Invalid Data",
+                        value={"error": "Expected a list (array) of objects."}
+                    ),
+                    OpenApiExample(
+                        "Empty List",
+                        value={"error": "Empty list provided"}
+                    )
+                ]
+            }
+        },
+        description="Create multiple instances asynchronously. Supports JSON array or CSV file upload.",
+        summary="Bulk create instances"
+    ) if SPECTACULAR_AVAILABLE else None
     def bulk_create(self, request):
         """
         Create multiple instances asynchronously.
@@ -48,6 +223,64 @@ class BulkOperationsMixin:
         return self._handle_bulk_request(request, "create")
 
     @action(detail=False, methods=["patch"], url_path="bulk")
+    @extend_schema(
+        request={
+            "application/json": {
+                "type": "array",
+                "description": "Array of objects with 'id' and fields to update",
+                "examples": [
+                    OpenApiExample(
+                        "JSON Update",
+                        value=[
+                            {"id": 1, "name": "Updated Business 1", "status": "inactive"},
+                            {"id": 2, "status": "active"}
+                        ]
+                    )
+                ]
+            },
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "CSV file with 'id' column and fields to update"
+                    }
+                }
+            }
+        },
+        responses={
+            202: {
+                "description": "Bulk update task started",
+                "examples": [
+                    OpenApiExample(
+                        "Task Started",
+                        value={
+                            "message": "Bulk update task started for 2 items",
+                            "task_id": "abc123-def456-ghi789",
+                            "total_items": 2,
+                            "status_url": "/api/bulk-operations/abc123-def456-ghi789/status/"
+                        }
+                    )
+                ]
+            },
+            400: {
+                "description": "Bad request",
+                "examples": [
+                    OpenApiExample(
+                        "Missing ID",
+                        value={"error": "Item at index 0 is missing 'id' field"}
+                    ),
+                    OpenApiExample(
+                        "Invalid Data",
+                        value={"error": "Expected a list (array) of objects."}
+                    )
+                ]
+            }
+        },
+        description="Update multiple instances asynchronously (partial updates). Requires 'id' field for each object.",
+        summary="Bulk update instances"
+    ) if SPECTACULAR_AVAILABLE else None
     def bulk_update(self, request):
         """
         Update multiple instances asynchronously (partial updates).
@@ -61,6 +294,64 @@ class BulkOperationsMixin:
         return self._handle_bulk_request(request, "update")
 
     @action(detail=False, methods=["put"], url_path="bulk")
+    @extend_schema(
+        request={
+            "application/json": {
+                "type": "array",
+                "description": "Array of complete objects with 'id' and all required fields",
+                "examples": [
+                    OpenApiExample(
+                        "JSON Replace",
+                        value=[
+                            {"id": 1, "name": "Replaced Business 1", "status": "active", "category": 1},
+                            {"id": 2, "name": "Replaced Business 2", "status": "inactive", "category": 2}
+                        ]
+                    )
+                ]
+            },
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "CSV file with 'id' column and all required fields"
+                    }
+                }
+            }
+        },
+        responses={
+            202: {
+                "description": "Bulk replace task started",
+                "examples": [
+                    OpenApiExample(
+                        "Task Started",
+                        value={
+                            "message": "Bulk replace task started for 2 items",
+                            "task_id": "abc123-def456-ghi789",
+                            "total_items": 2,
+                            "status_url": "/api/bulk-operations/abc123-def456-ghi789/status/"
+                        }
+                    )
+                ]
+            },
+            400: {
+                "description": "Bad request",
+                "examples": [
+                    OpenApiExample(
+                        "Missing ID",
+                        value={"error": "Item at index 0 is missing 'id' field"}
+                    ),
+                    OpenApiExample(
+                        "Invalid Data",
+                        value={"error": "Expected a list (array) of objects."}
+                    )
+                ]
+            }
+        },
+        description="Replace multiple instances asynchronously (full updates). Requires 'id' field and all required fields for each object.",
+        summary="Bulk replace instances"
+    ) if SPECTACULAR_AVAILABLE else None
     def bulk_replace(self, request):
         """
         Replace multiple instances asynchronously (full updates).
@@ -74,6 +365,62 @@ class BulkOperationsMixin:
         return self._handle_bulk_request(request, "replace")
 
     @action(detail=False, methods=["delete"], url_path="bulk")
+    @extend_schema(
+        request={
+            "application/json": {
+                "type": "array",
+                "description": "Array of IDs to delete",
+                "items": {"type": "integer"},
+                "examples": [
+                    OpenApiExample(
+                        "JSON Delete",
+                        value=[1, 2, 3, 4, 5]
+                    )
+                ]
+            },
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "CSV file with 'id' column containing IDs to delete"
+                    }
+                }
+            }
+        },
+        responses={
+            202: {
+                "description": "Bulk delete task started",
+                "examples": [
+                    OpenApiExample(
+                        "Task Started",
+                        value={
+                            "message": "Bulk delete task started for 5 items",
+                            "task_id": "abc123-def456-ghi789",
+                            "total_items": 5,
+                            "status_url": "/api/bulk-operations/abc123-def456-ghi789/status/"
+                        }
+                    )
+                ]
+            },
+            400: {
+                "description": "Bad request",
+                "examples": [
+                    OpenApiExample(
+                        "Invalid ID",
+                        value={"error": "Item at index 0 is not a valid ID"}
+                    ),
+                    OpenApiExample(
+                        "Invalid Data",
+                        value={"error": "Expected a list (array) of IDs."}
+                    )
+                ]
+            }
+        },
+        description="Delete multiple instances asynchronously. Provide array of IDs or CSV file with 'id' column.",
+        summary="Bulk delete instances"
+    ) if SPECTACULAR_AVAILABLE else None
     def bulk_delete(self, request):
         """
         Delete multiple instances asynchronously.
